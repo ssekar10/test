@@ -1,0 +1,52 @@
+name: Workflow to Deploy Template ADK agent 
+
+on:
+  push:
+    # Runs when code is pushed to dev or adk-test branches
+    branches: [dev] 
+  pull_request:
+    # Runs when a PR targets dev or adk-test branches
+    branches: [dev]
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to deploy from (dev)'
+        required: true
+        default: 'dev'
+     
+
+# Queue deployments per branch (still useful to ensure only one 'dev' deployment runs at a time)
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  
+  check_pr_approvals:
+    if: github.event_name == 'pull_request' && contains(fromJson('["dev"]'), github.base_ref)
+    uses: comcast-dxp-conversational-core/cicd-reusable-workflows/.github/workflows/xa_adk_check_pr_approvers.yml@dev
+    secrets: inherit
+
+  dev_deploy:
+    if: ${{ github.ref == 'refs/heads/dev' }}
+    uses: comcast-dxp-conversational-core/cicd-reusable-workflows/.github/workflows/deploy-adk-agent.yml@feature/xa-adk-steering-workflow
+    secrets: inherit
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+    with: 
+      environment: dev
+      slack_channel: ''
+   
+
+
+
+
+
+
+
+
+
+
+
+
