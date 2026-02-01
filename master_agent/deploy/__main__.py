@@ -3,12 +3,12 @@ import os
 import sys
 from dotenv import load_dotenv
 
-from bootstrap_agent.utils.deploy_utils import (
+from master_agent.utils.deploy_utils import (
     deploy_agent,
     get_latest_global_engine_info,
     make_deploy_name,
 )
-from bootstrap_agent.utils.custom_logger import CustomLogger
+from master_agent.utils.custom_logger import CustomLogger
 
 custom_logger = CustomLogger(__name__)
 

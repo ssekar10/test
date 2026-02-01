@@ -8,6 +8,7 @@ from bootstrap_agent.utils.custom_logger import CustomLogger
 from google.adk.tools.tool_context import ToolContext
 
 DUMMY_BASE_URL = os.getenv("DUMMY_BASE_URL", "https://api.dummycorp.net/v1")
+
 logger = CustomLogger(__name__)
 
 def _handle_api_response(api_endpoint: str, response: requests.Response) -> dict:

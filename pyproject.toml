@@ -1,7 +1,7 @@
 [project]
 name = "adk_root_agent"
 version = "0.1.0"
-description = "ADK version of Bootstrap_Agent Assistant"
+description = "Multi-Agent System for GCP Infrastructure Discovery using ADK"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
@@ -10,6 +10,9 @@ dependencies = [
     "google-adk[eval]~=1.20.0",
     "google-adk~=1.20.0",
     "google-cloud-aiplatform>=1.125.0",
+    "google-cloud-asset>=3.19.0",        # ADDED for Cloud Asset API
+    "google-cloud-run>=0.10.0",          # ADDED for Cloud Run API
+    "google-cloud-monitoring>=2.15.0",   # ADDED for Cloud Monitoring API
     "google-cloud-dialogflow-cx~=1.42.0",
     "google-cloud-logging~=3.12.1",
     "jsonpath-ng>=1.7.0",
@@ -41,7 +44,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    # these three are needed for docker server for ai4cx testing envs
     "fastapi-sso==0.18.0",
     "psycopg2-binary==2.9.10",
     "python-jose[cryptography]==3.5.0",
@@ -65,7 +67,7 @@ disable_error_code = ["misc", "no-untyped-call", "no-any-return"]
 exclude = [".venv"]
 
 [tool.setuptools.packages.find]
-where = ["."]  # list of folders that contain the packages (["."] by default)
-include = ["bootstrap_agent", "bootstrap_agent.*"]  # package names should match these glob patterns (["*"] by default)
-exclude = []  # exclude packages matching these glob patterns (empty by default)
-namespaces = true  # to disable scanning PEP 420 namespaces (true by default)
+where = ["."]
+include = ["master_agent", "master_agent.*", "sub_agents", "sub_agents.*"]  # CHANGED: Include both master_agent and sub_agents
+exclude = []
+namespaces = true

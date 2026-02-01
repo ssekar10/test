@@ -197,8 +197,8 @@ def deploy_agent(
     # Get the absolute path to the .env file in the agent directory
     # This assumes the script is run from the project root
     agent_env_path = os.path.join(os.getcwd(), agent_directory, ".env")
-    
-    # Copy the environment-specific .env file to the agent directory
+
+    # Copy the environment-specific .env file to the agent directory 
     environment = os.getenv("ENVIRONMENT", "dev").lower()
     source_env_file = os.path.join(os.getcwd(), "env", f".env.{environment}")
     if os.path.exists(source_env_file):

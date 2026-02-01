@@ -1,18 +1,14 @@
-
 import os
 import uvicorn
 from google.adk.cli.fast_api import get_fast_api_app
-from bootstrap_agent import get_agent
-
-# Directory where your agent files live
-AGENT_DIR = os.path.dirname(os.path.realpath(__file__))
+from master_agent import create_master_agent  # CHANGED: bootstrap_agent → master_agent
 
 ALLOWED_ORIGINS = ["*"]
 SERVE_WEB_INTERFACE = True
 
 # Create FastAPI app using ADK helper - pass agent directly
 app = get_fast_api_app(
-    agent=get_agent(),
+    agent=create_master_agent(),  # CHANGED: get_agent() → create_master_agent()
     allow_origins=ALLOWED_ORIGINS,
     web=SERVE_WEB_INTERFACE,
 )
@@ -20,7 +16,6 @@ app = get_fast_api_app(
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
-
 
 if __name__ == "__main__":
     uvicorn.run(
