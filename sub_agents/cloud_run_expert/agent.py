@@ -10,7 +10,9 @@ from sub_agents.cloud_run_expert.tools import (
     get_metrics_summary,
     get_exact_request_counts,
     get_resource_utilization,
-    get_all_utilization_metrics
+    get_all_utilization_metrics,
+    get_exact_request_counts,
+    get_request_rate_and_latency_summary,
 )
 
 
@@ -120,11 +122,47 @@ You have access to the following Cloud Run metrics. Use the appropriate tools fo
 4. Assess: If >80% suggest scaling up, if <20% suggest scaling down
 
 **When user reports performance issues:**
-1. SYMPTOM CHECK: Start with get_exact_request_counts for traffic patterns
-2. RESOURCE CHECK: Use get_all_utilization_metrics for CPU/memory
-3. SCALING CHECK: Check instance_count vs max_instances
-4. CORRELATION: Identify if CPU-bound, memory-bound, or scaling-limited
-5. RECOMMEND: Specific actions based on bottleneck
+1. SYMPTOM CHECK (fast): Use get_all_utilization_metrics(service_name, region, 1) to inspect CPU, memory, and instance behavior.
+2. TRAFFIC CHECK (fast): Use get_metrics_summary("request_count", region, 1, limit) to understand approximate traffic rate for the service.
+3. SCALING CHECK: Check instance_count vs max_instances from get_all_utilization_metrics.
+4. CORRELATION: Identify if the service is CPU-bound, memory-bound, or scaling-limited using these fast metrics.
+5. EXACT COUNTS (optional, slow): Only when the user explicitly asks for 100% accurate request counts or a precise traffic audit, use get_exact_request_counts(region, hours, limit). Explain that this may take longer and scan Cloud Logging data.
+6. RECOMMEND: Provide specific actions based on the metrics (e.g., increase max_instances, increase CPU, optimize code paths).
+
+**When user asks for request counts or traffic over a time window
+(e.g., "total number of requests for SERVICE in REGION for last N hours"):**
+
+1. Prefer fast Monitoring-based metrics:
+   - Always call the tool named `get_request_rate_and_latency_summary`
+     with the appropriate (service_name, region, hours) arguments
+     to retrieve:
+       - total_requests for the window,
+       - avg_requests_per_minute,
+       - max_requests_per_minute,
+       - latency_p95 (current, average, min, max) in milliseconds.
+   - Use these values directly to answer questions like
+     "total number of requests", "average traffic", and "latency"
+     for up to at least the last 6 hours.
+
+2. Treat log-based exact counting tools as explicitly opt-in:
+   - Only call `get_exact_request_counts` or
+     `get_exact_request_counts_from_logs` when the user explicitly asks for:
+       - "exact request counts from logs",
+       - "forensic accuracy from Cloud Logging",
+       - or similar wording that emphasizes log-level precision.
+   - Before calling these tools, clearly warn the user that:
+       - they may be significantly slower (several minutes),
+       - and may be constrained by Cloud Logging limits such as
+         "Reached max entries limit (100000) for this chunk".
+
+3. Do NOT automatically call `get_exact_request_counts` or
+   `get_exact_request_counts_from_logs` for generic phrases like
+   "total number of requests in the last N hours" or
+   "how much traffic did this service get recently".
+   For such questions, always use `get_request_rate_and_latency_summary`
+   as the primary source of truth.
+
+...
 
 **Response Style:**
 - Be analytical and systematic
@@ -215,7 +253,7 @@ def create_cloud_run_agent() -> LlmAgent:
  
  agent = LlmAgent(
      model=model,
-     name="cloud_run_specialist",
+     name="cloud_run_expert",
      instruction=CLOUD_RUN_SYSTEM_INSTRUCTION,
      tools=[
          list_services,
@@ -226,6 +264,7 @@ def create_cloud_run_agent() -> LlmAgent:
          get_all_utilization_metrics,
          get_metrics_summary,
          get_exact_request_counts,
+         get_request_rate_and_latency_summary
      ],
  )
  

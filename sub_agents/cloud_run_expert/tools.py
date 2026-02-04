@@ -866,6 +866,326 @@ class CloudRunTools:
                 "traceback": traceback.format_exc(),
                 "tool": "get_all_utilization_metrics"
             })
+    async def get_request_rate_and_latency_summary(
+        self,
+        service_name: Optional[str] = None,
+        region: Optional[str] = None,
+        hours: int = 6,
+    ) -> str:
+        """Fast request counts + latency (p95) from Cloud Monitoring (no log scanning)."""
+        try:
+            project_name = f"projects/{self.project_id}"
+            print(
+                f"[DEBUG] Fast request + latency summary for {hours}h, "
+                f"service={service_name}, region={region}"
+            )
+
+            now_est = self._get_current_est_time()
+            start_time_est = now_est - timedelta(hours=hours)
+            now_utc = now_est.astimezone(ZoneInfo("UTC"))
+            start_time_utc = start_time_est.astimezone(ZoneInfo("UTC"))
+
+            interval = monitoring_v3.TimeInterval(
+                end_time=now_utc.replace(tzinfo=None),
+                start_time=start_time_utc.replace(tzinfo=None),
+            )
+
+            # Base filter for Cloud Run revisions
+            filter_parts = ['resource.type = "cloud_run_revision"']
+            if service_name:
+                filter_parts.append(
+                    f'resource.labels.service_name = "{service_name}"'
+                )
+            if region:
+                filter_parts.append(
+                    f'resource.labels.location = "{region}"'
+                )
+            base_filter = " AND ".join(filter_parts)
+
+            # ---------- Request count (SUM per minute) ----------
+            req_metric_type = "run.googleapis.com/request_count"
+            req_filter = f'{base_filter} AND metric.type = "{req_metric_type}"'
+
+            req_aggregation = monitoring_v3.Aggregation(
+                alignment_period={"seconds": 60},
+                per_series_aligner=monitoring_v3.Aggregation.Aligner.ALIGN_SUM,
+                cross_series_reducer=monitoring_v3.Aggregation.Reducer.REDUCE_SUM,
+                group_by_fields=[],
+            )
+
+            req_request = monitoring_v3.ListTimeSeriesRequest(
+                name=project_name,
+                filter=req_filter,
+                interval=interval,
+                aggregation=req_aggregation,
+                view=monitoring_v3.ListTimeSeriesRequest.TimeSeriesView.FULL,
+            )
+
+            await self.rate_limiter.wait_if_needed()
+            req_series = self.monitoring_client.list_time_series(request=req_request)
+
+            total_requests = 0
+            per_minute_counts: list[int] = []
+
+            for series in req_series:
+                for point in series.points:
+                    # ALIGN_SUM on request_count → int64_value
+                    val = point.value.int64_value or 0
+                    total_requests += val
+                    per_minute_counts.append(val)
+
+            avg_req_per_min = round(
+                total_requests / (hours * 60), 2
+            ) if hours > 0 else 0.0
+            max_req_per_min = max(per_minute_counts) if per_minute_counts else 0
+
+            # ---------- Latency (p95 of distribution metric) ----------
+            lat_metric_type = "run.googleapis.com/request_latencies"
+            lat_filter = f'{base_filter} AND metric.type = "{lat_metric_type}"'
+
+            # Cloud Run request_latencies is a DISTRIBUTION metric; use percentile aligner.
+            lat_aggregation = monitoring_v3.Aggregation(
+                alignment_period={"seconds": 60},
+                per_series_aligner=(
+                    monitoring_v3.Aggregation.Aligner.ALIGN_PERCENTILE_95
+                ),
+                cross_series_reducer=(
+                    monitoring_v3.Aggregation.Reducer.REDUCE_PERCENTILE_95
+                ),
+                group_by_fields=[],
+            )
+
+            lat_request = monitoring_v3.ListTimeSeriesRequest(
+                name=project_name,
+                filter=lat_filter,
+                interval=interval,
+                aggregation=lat_aggregation,
+                view=monitoring_v3.ListTimeSeriesRequest.TimeSeriesView.FULL,
+            )
+
+            await self.rate_limiter.wait_if_needed()
+            lat_series = self.monitoring_client.list_time_series(request=lat_request)
+
+            lat_values_ms: list[float] = []
+
+            for series in lat_series:
+                for point in series.points:
+                    # Percentile aligner on distribution → double_value in seconds.
+                    val_seconds = point.value.double_value or 0.0
+                    lat_values_ms.append(val_seconds * 1000.0)
+
+            current_p95_ms = round(lat_values_ms[-1], 2) if lat_values_ms else 0.0
+            avg_p95_ms = (
+                round(sum(lat_values_ms) / len(lat_values_ms), 2)
+                if lat_values_ms
+                else 0.0
+            )
+            max_p95_ms = max(lat_values_ms) if lat_values_ms else 0.0
+            min_p95_ms = min(lat_values_ms) if lat_values_ms else 0.0
+
+            result = {
+                "service_name": service_name,
+                "region": region,
+                "time_window_hours": hours,
+                "time_range_start_est": self._to_est_string(start_time_est),
+                "time_range_end_est": self._to_est_string(now_est),
+                # Requests
+                "total_requests": int(total_requests),
+                "avg_requests_per_minute": avg_req_per_min,
+                "max_requests_per_minute": int(max_req_per_min),
+                # Latency (p95, ms)
+                "latency_p95": {
+                    "current_ms": current_p95_ms,
+                    "average_ms": avg_p95_ms,
+                    "max_ms": max_p95_ms,
+                    "min_ms": min_p95_ms,
+                    "datapoints": len(lat_values_ms),
+                    "unit": "ms",
+                    "note": (
+                        "Monitoring-based p95 from run.googleapis.com/request_latencies "
+                        "(no log scanning, subject to metric retention and sampling)."
+                    ),
+                },
+                "note": (
+                    "Fast Monitoring-based summary (request_count + p95 latency); "
+                    "use log-based tools only when explicit, exact forensic counts "
+                    "are required."
+                ),
+            }
+
+            return json.dumps(result, indent=2)
+
+        except Exception as e:
+            import traceback
+            return json.dumps(
+                {
+                    "error": str(e),
+                    "error_details": traceback.format_exc(),
+                    "tool": "get_request_rate_and_latency_summary",
+                    "project_id": self.project_id,
+                },
+                indent=2,
+            )
+    async def get_request_rate_and_latency_summary(
+        self,
+        service_name: Optional[str] = None,
+        region: Optional[str] = None,
+        hours: int = 6,
+    ) -> str:
+        """Fast request counts + latency (p95) from Cloud Monitoring (no log scanning)."""
+        try:
+            project_name = f"projects/{self.project_id}"
+            print(
+                f"[DEBUG] Fast request + latency summary for {hours}h, "
+                f"service={service_name}, region={region}"
+            )
+
+            now_est = self._get_current_est_time()
+            start_time_est = now_est - timedelta(hours=hours)
+            now_utc = now_est.astimezone(ZoneInfo("UTC"))
+            start_time_utc = start_time_est.astimezone(ZoneInfo("UTC"))
+
+            interval = monitoring_v3.TimeInterval(
+                end_time=now_utc.replace(tzinfo=None),
+                start_time=start_time_utc.replace(tzinfo=None),
+            )
+
+            # Base filter for Cloud Run revisions
+            filter_parts = ['resource.type = "cloud_run_revision"']
+            if service_name:
+                filter_parts.append(
+                    f'resource.labels.service_name = "{service_name}"'
+                )
+            if region:
+                filter_parts.append(
+                    f'resource.labels.location = "{region}"'
+                )
+            base_filter = " AND ".join(filter_parts)
+
+            # ---------- Request count (SUM per minute) ----------
+            req_metric_type = "run.googleapis.com/request_count"
+            req_filter = f'{base_filter} AND metric.type = "{req_metric_type}"'
+
+            req_aggregation = monitoring_v3.Aggregation(
+                alignment_period={"seconds": 60},
+                per_series_aligner=monitoring_v3.Aggregation.Aligner.ALIGN_SUM,
+                cross_series_reducer=monitoring_v3.Aggregation.Reducer.REDUCE_SUM,
+                group_by_fields=[],
+            )
+
+            req_request = monitoring_v3.ListTimeSeriesRequest(
+                name=project_name,
+                filter=req_filter,
+                interval=interval,
+                aggregation=req_aggregation,
+                view=monitoring_v3.ListTimeSeriesRequest.TimeSeriesView.FULL,
+            )
+
+            await self.rate_limiter.wait_if_needed()
+            req_series = self.monitoring_client.list_time_series(request=req_request)
+
+            total_requests = 0
+            per_minute_counts: list[int] = []
+
+            for series in req_series:
+                for point in series.points:
+                    # ALIGN_SUM on request_count → int64_value
+                    val = point.value.int64_value or 0
+                    total_requests += val
+                    per_minute_counts.append(val)
+
+            avg_req_per_min = round(
+                total_requests / (hours * 60), 2
+            ) if hours > 0 else 0.0
+            max_req_per_min = max(per_minute_counts) if per_minute_counts else 0
+
+            # ---------- Latency (p95 of distribution metric) ----------
+            lat_metric_type = "run.googleapis.com/request_latencies"
+            lat_filter = f'{base_filter} AND metric.type = "{lat_metric_type}"'
+
+            # Cloud Run request_latencies is a DISTRIBUTION metric; use percentile aligner.
+            lat_aggregation = monitoring_v3.Aggregation(
+                alignment_period={"seconds": 60},
+                per_series_aligner=(
+                    monitoring_v3.Aggregation.Aligner.ALIGN_PERCENTILE_95
+                ),
+                cross_series_reducer=(
+                    monitoring_v3.Aggregation.Reducer.REDUCE_PERCENTILE_95
+                ),
+                group_by_fields=[],
+            )
+
+            lat_request = monitoring_v3.ListTimeSeriesRequest(
+                name=project_name,
+                filter=lat_filter,
+                interval=interval,
+                aggregation=lat_aggregation,
+                view=monitoring_v3.ListTimeSeriesRequest.TimeSeriesView.FULL,
+            )
+
+            await self.rate_limiter.wait_if_needed()
+            lat_series = self.monitoring_client.list_time_series(request=lat_request)
+
+            lat_values_ms: list[float] = []
+
+            for series in lat_series:
+                for point in series.points:
+                    # Percentile aligner on distribution → double_value in seconds.
+                    val_seconds = point.value.double_value or 0.0
+                    lat_values_ms.append(val_seconds * 1000.0)
+
+            current_p95_ms = round(lat_values_ms[-1], 2) if lat_values_ms else 0.0
+            avg_p95_ms = (
+                round(sum(lat_values_ms) / len(lat_values_ms), 2)
+                if lat_values_ms
+                else 0.0
+            )
+            max_p95_ms = max(lat_values_ms) if lat_values_ms else 0.0
+            min_p95_ms = min(lat_values_ms) if lat_values_ms else 0.0
+
+            result = {
+                "service_name": service_name,
+                "region": region,
+                "time_window_hours": hours,
+                "time_range_start_est": self._to_est_string(start_time_est),
+                "time_range_end_est": self._to_est_string(now_est),
+                # Requests
+                "total_requests": int(total_requests),
+                "avg_requests_per_minute": avg_req_per_min,
+                "max_requests_per_minute": int(max_req_per_min),
+                # Latency (p95, ms)
+                "latency_p95": {
+                    "current_ms": current_p95_ms,
+                    "average_ms": avg_p95_ms,
+                    "max_ms": max_p95_ms,
+                    "min_ms": min_p95_ms,
+                    "datapoints": len(lat_values_ms),
+                    "unit": "ms",
+                    "note": (
+                        "Monitoring-based p95 from run.googleapis.com/request_latencies "
+                        "(no log scanning, subject to metric retention and sampling)."
+                    ),
+                },
+                "note": (
+                    "Fast Monitoring-based summary (request_count + p95 latency); "
+                    "use log-based tools only when explicit, exact forensic counts "
+                    "are required."
+                ),
+            }
+
+            return json.dumps(result, indent=2)
+
+        except Exception as e:
+            import traceback
+            return json.dumps(
+                {
+                    "error": str(e),
+                    "error_details": traceback.format_exc(),
+                    "tool": "get_request_rate_and_latency_summary",
+                    "project_id": self.project_id,
+                },
+                indent=2,
+            )
 
 
 # Tool function wrappers
@@ -948,3 +1268,26 @@ async def get_all_utilization_metrics(service_name: str, region: str, hours: int
     """
     tools = CloudRunTools()
     return await tools.get_all_utilization_metrics(service_name, region, hours)
+
+async def get_request_rate_and_latency_summary(
+    service_name: Optional[str] = None,
+    region: Optional[str] = None,
+    hours: int = 6,
+) -> str:
+    """Wrapper for CloudRunTools.get_request_rate_and_latency_summary."""
+    tools = CloudRunTools()
+    return await tools.get_request_rate_and_latency_summary(
+        service_name, region, hours
+    )
+
+async def get_request_rate_and_latency_summary(
+    service_name: Optional[str] = None,
+    region: Optional[str] = None,
+    hours: int = 6,
+) -> str:
+    """Wrapper for CloudRunTools.get_request_rate_and_latency_summary."""
+    tools = CloudRunTools()
+    return await tools.get_request_rate_and_latency_summary(
+        service_name, region, hours
+    )
+
