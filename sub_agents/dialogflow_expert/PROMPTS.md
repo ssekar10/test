@@ -1,98 +1,253 @@
+# Dialogflow Expert Sub-Agent Test Prompts
 
-```markdown
-# Dialogflow CX Specialist - Interaction Guide
-**Standard Operating Procedures & Test Prompts**
+Comprehensive test suite for validating session metadata tools and analytics capabilities.
 
-This document provides a categorized list of prompts to help you get the most out of the Dialogflow CX Specialist.
+## Quick Start Tests
 
----
+Basic functionality check - Run these first to verify agent is working:
 
-## 🏁 Quick Start (Top 5)
-*Just getting started? Try these.*
+Show me the last 10 sessions in the past 1 hour
+What are the session analytics for the last hour?
+Show me session breakdown by channel for the last hour
 
-1. **"List all Dialogflow agents"** (Finds everything in the default US region)
-2. **"Show configuration for [Agent Name]"** (Checks health/settings)
-3. **"List intents for [Agent Name]"** (See what the bot knows)
-4. **"List webhooks for [Agent Name]"** (Check backend connections)
-5. **"Show training phrases for Default Welcome Intent"** (Audit NLU)
+## 1. Session Search (df_search_sessions)
 
----
+### Basic Search
 
-## 🟢 Level 1: Discovery & Inventory
-*Use these to locate bots across different environments.*
+Show me the last 50 sessions in the past 1 hour
+Search for sessions in the last 2 hours
+Find the most recent 30 sessions
+List the last 100 sessions from the past 6 hours
 
-| Goal | User Prompt | Expected Outcome |
-| :--- | :--- | :--- |
-| **Find All Agents** | "List all agents in the US" | Lists agents in `us` multi-region. |
-| **Check Specific Region** | "List agents in europe-west1" | Lists agents hosted in Belgium. |
-| **Global Search** | "List global agents" | Checks the `global` non-regional endpoint. |
-| **Inventory Count** | "How many agents do we have?" | Returns a total count and summary list. |
+### Custom Limits
 
----
+Show me the last 10 sessions in the past hour
+Find 25 sessions from the last 3 hours
+Get 5 most recent sessions
 
-## 🟡 Level 2: Configuration Audits
-*Use these to verify settings consistency.*
+## 2. Session Details (df_get_session_details)
 
-| Goal | User Prompt | Expected Outcome |
-| :--- | :--- | :--- |
-| **Full Config Audit** | "Show config for [Agent Name]" | Returns Timezone, Language, Logging status. |
-| **Check Languages** | "What languages does it support?" | Lists primary (e.g., en) and secondary (e.g., es). |
-| **Verify Timezone** | "What is the agent's time zone?" | Critical for "Opening Hours" logic. |
-| **Security Check** | "Is logging enabled?" | Verifies if Stackdriver logging is active. |
+### Get Specific Session
 
----
+What are the complete details for session [paste session_id from previous search]?
+Get session details for 065GQ2DnR9-Teu0AAWc1_sV_A
+Show me full details for session xyz-abc-123 in the last 2 hours
 
-## 🟠 Level 3: Intent & NLU Inspection
-*Use these to debug matching issues or audit training data.*
+### Extended Time Windows
 
-| Goal | User Prompt | Expected Outcome |
-| :--- | :--- | :--- |
-| **List Intents** | "List all intents for [Agent Name]" | Summarizes all intents with phrase counts. |
-| **Find Weak Intents** | "Which intents have 0 training phrases?" | Identifies empty intents that won't trigger. |
-| **Deep Dive** | "Show training phrases for [Intent]" | Lists every user example phrase for that intent. |
-| **Check Parameters** | "What parameters does [Intent] use?" | Shows entities (e.g., @date, @city) and requirements. |
+Find session details for [session_id] in the last 48 hours
+Get session [session_id] from the last 7 days
 
----
+### Error Cases
 
-## 🔴 Level 4: Webhook & Backend
-*Use these when the bot responds with "Webhook call failed".*
+Get session details for fake-session-id-12345
 
-| Goal | User Prompt | Expected Outcome |
-| :--- | :--- | :--- |
-| **List Endpoints** | "List webhooks for [Agent Name]" | Shows names, target URLs, and status. |
-| **Check Timeouts** | "What is the webhook timeout?" | Verifies if timeout is too short (e.g., <5s). |
-| **Disabled Check** | "Are any webhooks disabled?" | Highlights integrations that are turned off. |
+## 3. Filter by Channel
 
----
+### Voice/Phone Channel
 
-## 💡 Advanced Workflows
+Show me sessions on the phone channel in the last hour
+Search for voice channel sessions in the past 2 hours
+Find telephony sessions from the last 3 hours
 
-### Scenario A: The "Production Audit"
-*You need to verify a live bot is healthy.*
-1. **"List agents in us-central1"** (Find the prod bot)
-2. **"Show config for Prod-Bot"** (Verify logging is ON)
-3. **"List webhooks for Prod-Bot"** (Verify it points to Prod URL, not Dev)
-4. **"Show details for 'Make Payment' intent"** (Ensure sensitive parameters are redacted)
+### Web Channel
 
-### Scenario B: The "Migration Comparison"
-*You moved a bot from Dev to QA. Did everything copy over?*
-1. **"Show config for Dev-Bot"**
-2. **"Show config for QA-Bot"**
-3. **"List intents for Dev-Bot"** (Note the count, e.g., 50)
-4. **"List intents for QA-Bot"** (Verify count matches 50)
+List web channel sessions in the past hour
+Show me website sessions from the last 2 hours
 
----
+### App/Mobile Channel
 
-## ⚠️ Edge Cases & "What If"
+Find app channel sessions in the last hour
+Show mobile sessions from the past 3 hours
 
-**Q: I don't know the full agent name.**
-> **Prompt:** "Search for a bot like 'billing'"
-> **Result:** The agent uses fuzzy matching to find "Billing-Support-v2".
+## 4. Filter by Agent
 
-**Q: I need to check multiple regions.**
-> **Prompt:** "List agents in us-east1 and europe-west1"
-> **Result:** The agent will execute two searches and combine the results.
+Show sessions for agent_id 680ec6e9-b5b5-44d9-a3ec-5c186ad3438b in the last hour
+Search sessions for agent abc-123 in the past 2 hours
+Find sessions handled by agent [agent_id] in the last 6 hours
 
-**Q: I need conversation traffic metrics.**
-> **Prompt:** "How many users spoke to the bot today?"
-> **Result:** The agent will explain it cannot access live metrics and guide you to BigQuery.
+## 5. Filter by Outcome
+
+### Successful Outcomes
+
+Show me sessions with successful outcome in the last hour
+Find completed sessions in the past 2 hours
+
+### Deflections
+
+Show me sessions with deflection outcome in the last hour
+Find deflected sessions in the past 3 hours
+How many sessions had deflections in the last 2 hours?
+
+### Failures
+
+Search for failed sessions in the last hour
+Show me incomplete sessions from the past 2 hours
+
+### Transfers
+
+List sessions filtered by transfer outcome in the past hour
+Show transferred sessions in the last 3 hours
+
+### No CCAIP Data
+
+Find sessions with no_ccaip_data outcome in the last hour
+
+## 6. Session Analytics (df_session_analytics)
+
+### Basic Analytics
+
+What are the session analytics for the last hour?
+Show me session statistics for the past 2 hours
+Give me aggregated session metrics for the last 3 hours
+
+### Performance Analysis
+
+Analyze session performance over the last hour
+What's the average session duration in the past 2 hours?
+How many sessions ended with deflection in the last hour?
+
+### Time-Series Analysis
+
+Show me session volume trend by minute for the last hour
+What's the session analytics time series for the past 3 hours?
+
+## 7. Channel Breakdown (df_session_by_channel)
+
+Show me session breakdown by channel for the last hour
+What channels are being used in the past 2 hours?
+Break down sessions by channel for the last 3 hours
+Which channels have the most sessions in the past 6 hours?
+Compare channel performance for the last hour
+
+## 8. Outcome Distribution (df_session_by_outcome)
+
+What are the session outcomes in the last hour?
+Show me outcome distribution for the past 2 hours
+Break down sessions by heuristic outcome for the last 3 hours
+What outcomes do sessions have in the past hour?
+What's the deflection rate in the last 2 hours?
+
+## 9. Top Intents (df_session_top_intents)
+
+What are the top intents by session count in the last hour?
+Show me the most common intents from the past 2 hours
+Which intents are triggered most in the last 3 hours?
+List the top 20 intents by session volume for the past hour
+What are the top 10 intents in the last 6 hours?
+
+## 10. Combined Filters (Advanced)
+
+### Channel + Outcome
+
+Show me phone channel sessions with deflection outcome in the last 2 hours
+Find web sessions with successful outcome in the past hour
+Search for voice channel failures in the last 3 hours
+
+### Agent + Channel
+
+Find sessions for agent abc-123 on the web channel in the past hour
+Show me phone sessions for agent 680ec6e9-b5b5-44d9-a3ec-5c186ad3438b in the last 2 hours
+
+### Agent + Outcome + Channel
+
+Search for successful sessions on the telephony channel in the last 3 hours, limit 25
+Find deflected phone sessions for agent xyz in the past hour
+
+## 11. Comparative Analysis
+
+### Time Comparisons
+
+Compare session analytics between the last hour and the previous hour
+Show me session breakdown by channel for 1 hour vs 3 hours
+What are the top intents in the last hour vs the last 6 hours?
+
+### Metric Comparisons
+
+Compare deflection rates across all channels in the last 2 hours
+Which channel has the highest average session duration in the past 3 hours?
+
+## 12. Troubleshooting Scenarios
+
+### Session Issues
+
+Show me sessions with incomplete status in the last hour
+Find sessions that didn't end normally in the past 2 hours
+Which sessions had errors in the last 3 hours?
+
+### CCAIP Issues
+
+Show me sessions with CCAIP deflection in the last hour
+Which CCAIP menus were selected most in the past 2 hours?
+Find sessions with CCAIP queue issues in the last hour
+
+## 13. Business Intelligence Queries
+
+What's the average session duration by channel in the last 3 hours?
+How many sessions had deflections vs regular completions in the past hour?
+What's the deflection rate by channel for the last 2 hours?
+Which outcomes have the highest average turns in the past 6 hours?
+
+## 14. CCAIP-Specific Queries
+
+Show me sessions with CCAIP menu selections in the last hour
+Which CCAIP menus were selected most in the past 3 hours?
+Find sessions with CCAIP deflection in the last 2 hours
+What are the top CCAIP queue IDs in the past hour?
+
+## 15. Multi-Step Workflows
+
+Step 1: Show me the last 10 sessions in the past hour
+Step 2: [Pick a session_id from results]
+Step 3: Get full details for session [session_id]
+Step 4: What was the head intent and outcome for that session?
+
+Step 1: What are the top intents in the last hour?
+Step 2: [Pick top intent]
+Step 3: Show me sessions with that intent in the past hour
+
+## 16. Performance Testing
+
+Show me 100 sessions in the last 6 hours
+Search for sessions with all filters applied: agent [id], channel phone, outcome success, limit 50, for the past 3 hours
+
+## 17. Edge Cases and Validation
+
+Search for sessions with limit 5 in the past hour
+Find sessions in the last 24 hours
+Show me sessions with no filters applied for the past 30 minutes
+Get session details for a non-existent session ID: fake-session-123
+
+## 18. Real-World Business Queries
+
+How many phone sessions deflected to live agents in the last hour?
+What's the average conversation length for successful vs failed sessions in the past 2 hours?
+Which market/division has the most sessions in the last 3 hours?
+Show me sessions that transferred to a specific module in the past hour
+
+## Expected Results Guide
+
+For df_search_sessions: Returns session_id, timestamps, duration, channel, agent_id, turns, intent, outcome, market, division
+
+For df_get_session_details: Returns all 30+ fields including CCAIP data, caller info, transfer details, parameters
+
+For df_session_analytics: Returns total_sessions, avg_duration, avg_turns, deflection_count, wrapup_count, incomplete_sessions, timeseries
+
+For df_session_by_channel: Returns channel, session_count, avg_duration, avg_turns, deflection_count
+
+For df_session_by_outcome: Returns heuristic_outcome, session_count, avg_turns, deflection_count
+
+For df_session_top_intents: Returns head_intent, session_count, avg_turns (top 20)
+
+## Validation Checklist
+
+After testing, verify:
+- All 6 new tools work without errors
+- Time windows are respected (1h, 2h, 3h, 6h)
+- Filters work (agent_id, channel, outcome)
+- Limit parameter works (default 50, custom values)
+- Session details show all fields including JSON parameters
+- Aggregated stats match time-series data
+- Timestamps are in EST and properly formatted
+- Empty results return graceful messages
+- Invalid session_id returns "not found" message

@@ -7,10 +7,10 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
+
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
-from . import config
-from . import queries
+
 from google.auth import default
 from google.cloud import monitoring_v3
 from google.cloud import bigquery
@@ -29,7 +29,8 @@ except ImportError:
     DIALOGFLOW_CX_AVAILABLE = False
     print("[DialogflowTools] WARNING: google-cloud-dialogflow-cx not installed")
 
-
+from . import config
+from . import queries
 
 # Load environment variables from env/.env.dev (same pattern as Cloud Run expert)
 env_file = os.path.join(os.getcwd(), "env", ".env.dev")
@@ -101,19 +102,19 @@ class DialogflowTools:
         # ========================================
         # Both alerting_monitoring and dfcx_analytics datasets are in us-central1
         self.bq_client = bigquery.Client(
-            project=self.project_id,
+            project=self.project_id, 
             location="us-central1"
         )
-
+        
         # For backward compatibility
         self._bq_clients = {
             "us-central1": self.bq_client,
         }
-
+        
         print(f"[DialogflowTools] BigQuery client initialized for us-central1")
         print(f"  - alerting_monitoring dataset ✓")
         print(f"  - dfcx_analytics dataset ✓")
-
+        
     # ---------- Time helpers ----------
 
     def _get_current_est_time(self) -> datetime:
@@ -132,11 +133,11 @@ class DialogflowTools:
         now_est = self._get_current_est_time()
         # Ensure we look back from NOW
         start_est = now_est - timedelta(hours=hours)
-
+        
         # Convert to UTC for BigQuery comparison
         now_utc = now_est.astimezone(ZoneInfo("UTC"))
         start_utc = start_est.astimezone(ZoneInfo("UTC"))
-
+        
         # Format as YYYY-MM-DD HH:MM:SS (BigQuery friendly)
         return {
             "start_ts_raw": start_utc.strftime("%Y-%m-%d %H:%M:%S"),
@@ -182,10 +183,9 @@ class DialogflowTools:
                 else:
                     raise
 
-    @async_with_retry(max_retries=3)
     async def _run_bq_query(
-        self,
-        sql: str,
+        self, 
+        sql: str, 
         params: Optional[Dict[str, Any]] = None,
         location: str = "us-central1"  # ← NEW: Location parameter with default
     ) -> List[Dict[str, Any]]:
@@ -206,10 +206,11 @@ class DialogflowTools:
                         bq_params.append(bigquery.ScalarQueryParameter(name, "STRING", str(value)))
                 job_config.query_parameters = bq_params
 
+
             async def _run():
                 # ← NEW: Select appropriate client based on location
                 client = self._bq_clients.get(location, self.bq_client)
-
+                
                 query_job = client.query(sql, job_config=job_config)  # ← CHANGED: Use location-specific client
                 result = query_job.result()
                 rows: List[Dict[str, Any]] = []
@@ -226,6 +227,7 @@ class DialogflowTools:
                     rows.append(row_dict)
                 return rows
 
+
             rows = await self._retry_with_backoff(_run)
             return rows
         except Exception as e:
@@ -233,11 +235,12 @@ class DialogflowTools:
             print(f"[DialogflowTools] BQ Execution Error (location={location}): {str(e)}")
             raise
 
+
     # ---------- Session Metadata Queries (dfcx_session_metadata) ----------
 
     async def df_get_session_details(self, session_id: str, hours: int = 24) -> str:
         """Get detailed information for a specific Dialogflow session.
-
+        
         Args:
             session_id: The session ID to search for
             hours: Time window to search (default 24 hours, max 168 hours/7 days)
@@ -251,34 +254,32 @@ class DialogflowTools:
                 "end_ts": bounds["end_ts"]
             }
             rows = await self._run_bq_query(sql, params)
-
+            
             if not rows:
-                result = {
+                return json.dumps({
                     "session_id": session_id,
                     "search_window_hours": hours,
                     "error": "Session not found",
                     "note": f"Session '{session_id}' not found in the last {hours} hours. Try increasing the time window (up to 168 hours/7 days) or check if the session_id is correct."
-                }
-                return response_manager.prepare_response(result, "df_get_session_details")
-
+                }, indent=2)
+            
             session = rows[0]
             now_est = self._get_current_est_time()
-
-            result = {
+            
+            return json.dumps({
                 "source": "dfcx_analytics.dfcx_session_metadata",
                 "search_window_hours": hours,
                 "session": session,
                 "query_time_est": self._to_est_string(now_est)
-            }
-            return response_manager.prepare_response(result, "df_get_session_details")
+            }, indent=2)
         except Exception as e:
             import traceback
-            result = {
+            return json.dumps({
                 "error": str(e),
                 "trace": traceback.format_exc(),
                 "tool": "df_get_session_details"
-            }
-            return response_manager.prepare_response(result, "df_get_session_details")
+            }, indent=2)        
+
 
     async def df_search_sessions(
         self,
@@ -291,7 +292,7 @@ class DialogflowTools:
         """Search for Dialogflow sessions with optional filters."""
         try:
             bounds = self._get_time_window_bounds(hours)
-
+            
             # Build dynamic SQL with proper WHERE clauses
             base_sql = f"""
             SELECT
@@ -312,32 +313,32 @@ class DialogflowTools:
             FROM {queries.DFCX_SESSION_METADATA_TABLE}
             WHERE session_start_time BETWEEN TIMESTAMP(@start_ts_raw) AND TIMESTAMP(@end_ts)
             """
-
+            
             params = {
                 "start_ts_raw": bounds["start_ts_raw"],
                 "end_ts": bounds["end_ts"],
                 "limit": limit
             }
-
+            
             # Add optional filters
             if agent_id:
                 base_sql += "  AND agent_id = @agent_id\n"
                 params["agent_id"] = agent_id
-
+            
             if channel:
                 base_sql += "  AND channel = @channel\n"
                 params["channel"] = channel
-
+            
             if outcome:
                 base_sql += "  AND heuristic_outcome = @outcome\n"
                 params["outcome"] = outcome
-
+            
             base_sql += "ORDER BY session_start_time DESC\nLIMIT @limit"
-
+            
             rows = await self._run_bq_query(base_sql, params)
             now_est = self._get_current_est_time()
-
-            result = {
+            
+            return json.dumps({
                 "source": "dfcx_analytics.dfcx_session_metadata",
                 "window_hours": hours,
                 "filters": {
@@ -349,16 +350,15 @@ class DialogflowTools:
                 "session_count": len(rows),
                 "sessions": rows,
                 "query_time_est": self._to_est_string(now_est)
-            }
-            return response_manager.prepare_response(result, "df_search_sessions")
+            }, indent=2)
         except Exception as e:
             import traceback
-            result = {
+            return json.dumps({
                 "error": str(e),
                 "trace": traceback.format_exc(),
                 "tool": "df_search_sessions"
-            }
-            return response_manager.prepare_response(result, "df_search_sessions")
+            }, indent=2)
+
 
     async def df_session_analytics(self, hours: int = 1) -> str:
         """Get aggregated session analytics over time."""
@@ -370,16 +370,16 @@ class DialogflowTools:
                 "end_ts": bounds["end_ts"]
             }
             rows = await self._run_bq_query(sql, params)
-
+            
             # Calculate totals
             total_sessions = sum(r.get("total_sessions", 0) for r in rows)
             total_deflections = sum(r.get("deflection_count", 0) for r in rows)
             total_wrapups = sum(r.get("wrapup_count", 0) for r in rows)
             total_incomplete = sum(r.get("incomplete_sessions", 0) for r in rows)
-
+            
             now_est = self._get_current_est_time()
-
-            result = {
+            
+            return json.dumps({
                 "source": "dfcx_analytics.dfcx_session_metadata",
                 "window_hours": hours,
                 "summary": {
@@ -391,16 +391,14 @@ class DialogflowTools:
                 },
                 "timeseries": rows,
                 "query_time_est": self._to_est_string(now_est)
-            }
-            return response_manager.prepare_response(result, "df_session_analytics")
+            }, indent=2)
         except Exception as e:
             import traceback
-            result = {
+            return json.dumps({
                 "error": str(e),
                 "trace": traceback.format_exc(),
                 "tool": "df_session_analytics"
-            }
-            return response_manager.prepare_response(result, "df_session_analytics")
+            }, indent=2)
 
     async def df_session_by_channel(self, hours: int = 1) -> str:
         """Get session breakdown by channel."""
@@ -413,22 +411,20 @@ class DialogflowTools:
             }
             rows = await self._run_bq_query(sql, params)
             now_est = self._get_current_est_time()
-
-            result = {
+            
+            return json.dumps({
                 "source": "dfcx_analytics.dfcx_session_metadata",
                 "window_hours": hours,
                 "channels": rows,
                 "query_time_est": self._to_est_string(now_est)
-            }
-            return response_manager.prepare_response(result, "df_session_by_channel")
+            }, indent=2)
         except Exception as e:
             import traceback
-            result = {
+            return json.dumps({
                 "error": str(e),
                 "trace": traceback.format_exc(),
                 "tool": "df_session_by_channel"
-            }
-            return response_manager.prepare_response(result, "df_session_by_channel")
+            }, indent=2)
 
     async def df_session_by_outcome(self, hours: int = 1) -> str:
         """Get session breakdown by heuristic outcome."""
@@ -441,22 +437,20 @@ class DialogflowTools:
             }
             rows = await self._run_bq_query(sql, params)
             now_est = self._get_current_est_time()
-
-            result = {
+            
+            return json.dumps({
                 "source": "dfcx_analytics.dfcx_session_metadata",
                 "window_hours": hours,
                 "outcomes": rows,
                 "query_time_est": self._to_est_string(now_est)
-            }
-            return response_manager.prepare_response(result, "df_session_by_outcome")
+            }, indent=2)
         except Exception as e:
             import traceback
-            result = {
+            return json.dumps({
                 "error": str(e),
                 "trace": traceback.format_exc(),
                 "tool": "df_session_by_outcome"
-            }
-            return response_manager.prepare_response(result, "df_session_by_outcome")
+            }, indent=2)
 
     async def df_session_top_intents(self, hours: int = 1) -> str:
         """Get top 20 intents by session count."""
@@ -469,22 +463,23 @@ class DialogflowTools:
             }
             rows = await self._run_bq_query(sql, params)
             now_est = self._get_current_est_time()
-
-            result = {
+            
+            return json.dumps({
                 "source": "dfcx_analytics.dfcx_session_metadata",
                 "window_hours": hours,
                 "top_intents": rows,
                 "query_time_est": self._to_est_string(now_est)
-            }
-            return response_manager.prepare_response(result, "df_session_top_intents")
+            }, indent=2)
         except Exception as e:
             import traceback
-            result = {
+            return json.dumps({
                 "error": str(e),
                 "trace": traceback.format_exc(),
                 "tool": "df_session_top_intents"
-            }
-            return response_manager.prepare_response(result, "df_session_top_intents")
+            }, indent=2)
+
+
+
 
     # ---------- Agent discovery & configuration ----------
 
@@ -492,24 +487,28 @@ class DialogflowTools:
         """List Dialogflow agents in a specific location."""
         try:
             if not DIALOGFLOW_CX_AVAILABLE:
-                result = {
-                    "error": "Dialogflow CX client not available. Install: google-cloud-dialogflow-cx",
-                    "project_id": self.project_id,
-                    "tool": "list_dialogflow_agents",
-                }
-                return response_manager.prepare_response(result, "list_dialogflow_agents")
+                return json.dumps(
+                    {
+                        "error": "Dialogflow CX client not available. Install: google-cloud-dialogflow-cx",
+                        "project_id": self.project_id,
+                        "tool": "list_dialogflow_agents",
+                    },
+                    indent=2,
+                )
             location = location or self.location
             parent = f"projects/{self.project_id}/locations/{location}"
             print(f"[DialogflowTools] Listing Dialogflow agents in location={location}, project={self.project_id}")
             try:
                 agents_client = self._get_regional_client(location, dialogflow_cx.AgentsClient)
                 if not agents_client:
-                    result = {
-                        "error": "Failed to create regional client",
-                        "location": location,
-                        "project_id": self.project_id,
-                    }
-                    return response_manager.prepare_response(result, "list_dialogflow_agents")
+                    return json.dumps(
+                        {
+                            "error": "Failed to create regional client",
+                            "location": location,
+                            "project_id": self.project_id,
+                        },
+                        indent=2,
+                    )
                 agents_result = await self._retry_with_backoff(agents_client.list_agents, parent=parent)
                 agent_list: List[Dict[str, Any]] = []
                 for agent in agents_result:
@@ -522,14 +521,16 @@ class DialogflowTools:
                             "time_zone": agent.time_zone,
                         }
                     )
-                result = {
-                    "project_id": self.project_id,
-                    "location": location,
-                    "agent_count": len(agent_list),
-                    "agents": agent_list,
-                    "query_time_est": self._to_est_string(self._get_current_est_time()),
-                }
-                return response_manager.prepare_response(result, "list_dialogflow_agents")
+                return json.dumps(
+                    {
+                        "project_id": self.project_id,
+                        "location": location,
+                        "agent_count": len(agent_list),
+                        "agents": agent_list,
+                        "query_time_est": self._to_est_string(self._get_current_est_time()),
+                    },
+                    indent=2,
+                )
             except Exception as e:
                 import traceback
                 error_msg = str(e)
@@ -542,21 +543,21 @@ class DialogflowTools:
                     note = "Dialogflow CX API is not enabled. Enable it in the Cloud Console."
                 else:
                     note = "Failed to list agents. Check API enablement and IAM permissions."
-                result = {
-                    "project_id": self.project_id,
-                    "location": location,
-                    "error": error_msg,
-                    "note": note,
-                }
-                return response_manager.prepare_response(result, "list_dialogflow_agents")
+                return json.dumps(
+                    {
+                        "project_id": self.project_id,
+                        "location": location,
+                        "error": error_msg,
+                        "note": note,
+                    },
+                    indent=2,
+                )
         except Exception as e:
             import traceback
-            result = {
-                "error": str(e),
-                "error_details": traceback.format_exc(),
-                "tool": "list_dialogflow_agents",
-            }
-            return response_manager.prepare_response(result, "list_dialogflow_agents")
+            return json.dumps(
+                {"error": str(e), "error_details": traceback.format_exc(), "tool": "list_dialogflow_agents"},
+                indent=2,
+            )
 
     async def get_agent_configuration(
         self,
@@ -566,8 +567,10 @@ class DialogflowTools:
         """Get detailed configuration for a Dialogflow agent (no cache)."""
         try:
             if not DIALOGFLOW_CX_AVAILABLE:
-                result = {"error": "Dialogflow CX client not available.", "agent_id": agent_id}
-                return response_manager.prepare_response(result, "get_agent_configuration")
+                return json.dumps(
+                    {"error": "Dialogflow CX client not available.", "agent_id": agent_id},
+                    indent=2,
+                )
             location = location or self.location
 
             # Parse agent_id (display name or full resource)
@@ -596,12 +599,14 @@ class DialogflowTools:
                                     candidate = a
                                     break
                         if not candidate:
-                            result = {
-                                "agent_id": agent_id,
-                                "location": location,
-                                "error": f"Agent '{agent_id}' not found in location '{location}'",
-                            }
-                            return response_manager.prepare_response(result, "get_agent_configuration")
+                            return json.dumps(
+                                {
+                                    "agent_id": agent_id,
+                                    "location": location,
+                                    "error": f"Agent '{agent_id}' not found in location '{location}'",
+                                },
+                                indent=2,
+                            )
                         agent_name = candidate.name
                         print(f"[DEBUG] Found agent: {candidate.display_name}")
                     except Exception as list_err:
@@ -612,8 +617,10 @@ class DialogflowTools:
 
             agents_client = self._get_regional_client(location, dialogflow_cx.AgentsClient)
             if not agents_client:
-                result = {"agent_id": agent_id, "error": f"Could not create client for location {location}"}
-                return response_manager.prepare_response(result, "get_agent_configuration")
+                return json.dumps(
+                    {"agent_id": agent_id, "error": f"Could not create client for location {location}"},
+                    indent=2,
+                )
             agent = await self._retry_with_backoff(agents_client.get_agent, name=agent_name)
             cfg = {
                 "agent_id": agent.name.split("/")[-1],
@@ -629,15 +636,17 @@ class DialogflowTools:
                 "enable_spell_correction": agent.enable_spell_correction,
                 "query_time_est": self._to_est_string(self._get_current_est_time()),
             }
-            return response_manager.prepare_response(cfg, "get_agent_configuration")
+            return json.dumps(cfg, indent=2)
         except Exception as e:
             import traceback
-            result = {
-                "error": str(e),
-                "error_details": traceback.format_exc(),
-                "tool": "get_agent_configuration",
-            }
-            return response_manager.prepare_response(result, "get_agent_configuration")
+            return json.dumps(
+                {
+                    "error": str(e),
+                    "error_details": traceback.format_exc(),
+                    "tool": "get_agent_configuration",
+                },
+                indent=2,
+            )
 
     async def get_agent_configuration_cached(
         self,
@@ -662,8 +671,10 @@ class DialogflowTools:
         """List all intents for an agent (cached 5min)."""
         try:
             if not DIALOGFLOW_CX_AVAILABLE:
-                result = {"error": "Dialogflow CX client not available.", "agent_id": agent_id}
-                return response_manager.prepare_response(result, "list_intents")
+                return json.dumps(
+                    {"error": "Dialogflow CX client not available.", "agent_id": agent_id},
+                    indent=2,
+                )
             location = location or self.location
             cache_key = f"{agent_id}_{location}_intents"
             cached = config.get_cached_intents(cache_key)
@@ -680,8 +691,10 @@ class DialogflowTools:
 
             intents_client = self._get_regional_client(location, dialogflow_cx.IntentsClient)
             if not intents_client:
-                result = {"agent_id": agent_id, "error": f"Could not create client for location {location}"}
-                return response_manager.prepare_response(result, "list_intents")
+                return json.dumps(
+                    {"agent_id": agent_id, "error": f"Could not create client for location {location}"},
+                    indent=2,
+                )
             intents_result = await self._retry_with_backoff(intents_client.list_intents, parent=agent_name)
             intent_list: List[Dict[str, Any]] = []
             for intent in intents_result:
@@ -694,20 +707,24 @@ class DialogflowTools:
                         "resource_name": intent.name,
                     }
                 )
-            result = {
-                "agent_id": agent_id,
-                "location": location,
-                "intent_count": len(intent_list),
-                "intents": intent_list,
-                "query_time_est": self._to_est_string(self._get_current_est_time()),
-            }
-            wrapped = response_manager.prepare_response(result, "list_intents")
-            config.set_cached_intents(cache_key, wrapped)
-            return wrapped
+            result = json.dumps(
+                {
+                    "agent_id": agent_id,
+                    "location": location,
+                    "intent_count": len(intent_list),
+                    "intents": intent_list,
+                    "query_time_est": self._to_est_string(self._get_current_est_time()),
+                },
+                indent=2,
+            )
+            config.set_cached_intents(cache_key, result)
+            return result
         except Exception as e:
             import traceback
-            result = {"error": str(e), "error_details": traceback.format_exc(), "tool": "list_intents"}
-            return response_manager.prepare_response(result, "list_intents")
+            return json.dumps(
+                {"error": str(e), "error_details": traceback.format_exc(), "tool": "list_intents"},
+                indent=2,
+            )
 
     async def get_intent_details(
         self,
@@ -718,8 +735,10 @@ class DialogflowTools:
         """Get detailed information for a single intent including training phrases."""
         try:
             if not DIALOGFLOW_CX_AVAILABLE:
-                result = {"error": "Dialogflow CX client not available.", "agent_id": agent_id, "intent_id": intent_id}
-                return response_manager.prepare_response(result, "get_intent_details")
+                return json.dumps(
+                    {"error": "Dialogflow CX client not available.", "agent_id": agent_id, "intent_id": intent_id},
+                    indent=2,
+                )
             location = location or self.location
 
             # Resolve agent_name
@@ -759,12 +778,10 @@ class DialogflowTools:
 
             intents_client = self._get_regional_client(location, dialogflow_cx.IntentsClient)
             if not intents_client:
-                result = {
-                    "agent_id": agent_id,
-                    "intent_id": intent_id,
-                    "error": f"Could not create client for location {location}",
-                }
-                return response_manager.prepare_response(result, "get_intent_details")
+                return json.dumps(
+                    {"agent_id": agent_id, "intent_id": intent_id, "error": f"Could not create client for location {location}"},
+                    indent=2,
+                )
 
             # Resolve intent_name (display_name or ID)
             if "/" in intent_id and "intents/" in intent_id:
@@ -785,13 +802,15 @@ class DialogflowTools:
                             candidate_intent = it
                             break
                 if not candidate_intent:
-                    result = {
-                        "agent_id": agent_id,
-                        "intent_id": intent_id,
-                        "location": location,
-                        "error": f"Intent '{intent_id}' not found",
-                    }
-                    return response_manager.prepare_response(result, "get_intent_details")
+                    return json.dumps(
+                        {
+                            "agent_id": agent_id,
+                            "intent_id": intent_id,
+                            "location": location,
+                            "error": f"Intent '{intent_id}' not found",
+                        },
+                        indent=2,
+                    )
                 intent_name = candidate_intent.name
                 print(f"[DEBUG] Found intent: {candidate_intent.display_name}")
 
@@ -830,11 +849,13 @@ class DialogflowTools:
                 },
                 "query_time_est": self._to_est_string(self._get_current_est_time()),
             }
-            return response_manager.prepare_response(result, "get_intent_details")
+            return json.dumps(result, indent=2)
         except Exception as e:
             import traceback
-            result = {"error": str(e), "error_details": traceback.format_exc(), "tool": "get_intent_details"}
-            return response_manager.prepare_response(result, "get_intent_details")
+            return json.dumps(
+                {"error": str(e), "error_details": traceback.format_exc(), "tool": "get_intent_details"},
+                indent=2,
+            )
 
     # ---------- Webhooks ----------
 
@@ -842,8 +863,10 @@ class DialogflowTools:
         """List configured webhooks for an agent (cached 5min)."""
         try:
             if not DIALOGFLOW_CX_AVAILABLE:
-                result = {"error": "Dialogflow CX client not available.", "agent_id": agent_id}
-                return response_manager.prepare_response(result, "list_webhooks")
+                return json.dumps(
+                    {"error": "Dialogflow CX client not available.", "agent_id": agent_id},
+                    indent=2,
+                )
             location = location or self.location
             cache_key = f"{agent_id}_{location}_webhooks"
             cached = config.get_cached_webhooks(cache_key)
@@ -860,8 +883,10 @@ class DialogflowTools:
 
             webhooks_client = self._get_regional_client(location, dialogflow_cx.WebhooksClient)
             if not webhooks_client:
-                result = {"agent_id": agent_id, "error": f"Could not create client for location {location}"}
-                return response_manager.prepare_response(result, "list_webhooks")
+                return json.dumps(
+                    {"agent_id": agent_id, "error": f"Could not create client for location {location}"},
+                    indent=2,
+                )
 
             webhooks_result = await self._retry_with_backoff(webhooks_client.list_webhooks, parent=agent_name)
             webhook_list: List[Dict[str, Any]] = []
@@ -897,31 +922,35 @@ class DialogflowTools:
                     }
                 webhook_list.append(cfg)
 
-            result = {
-                "agent_id": agent_id,
-                "location": location,
-                "webhook_count": len(webhook_list),
-                "webhooks": webhook_list,
-                "query_time_est": self._to_est_string(self._get_current_est_time()),
-                "note": (
-                    "For webhook performance metrics, if webhook is Cloud Run-based, "
-                    "use the Cloud Run specialist to analyze request counts, latency, and errors."
-                ),
-            }
-            wrapped = response_manager.prepare_response(result, "list_webhooks")
-            config.set_cached_webhooks(cache_key, wrapped)
-            return wrapped
+            result = json.dumps(
+                {
+                    "agent_id": agent_id,
+                    "location": location,
+                    "webhook_count": len(webhook_list),
+                    "webhooks": webhook_list,
+                    "query_time_est": self._to_est_string(self._get_current_est_time()),
+                    "note": (
+                        "For webhook performance metrics, if webhook is Cloud Run-based, "
+                        "use the Cloud Run specialist to analyze request counts, latency, and errors."
+                    ),
+                },
+                indent=2,
+            )
+            config.set_cached_webhooks(cache_key, result)
+            return result
         except Exception as e:
             import traceback
             error_details = traceback.format_exc()
             print(f"[ERROR] Failed to list webhooks: {error_details}")
-            result = {
-                "error": str(e),
-                "error_details": error_details,
-                "tool": "list_webhooks",
-                "agent_id": agent_id,
-            }
-            return response_manager.prepare_response(result, "list_webhooks")
+            return json.dumps(
+                {
+                    "error": str(e),
+                    "error_details": error_details,
+                    "tool": "list_webhooks",
+                    "agent_id": agent_id,
+                },
+                indent=2,
+            )
 
     # ---------- BigQuery metrics tools (alerting_monitoring.dialogflow_metrics) ----------
 
@@ -941,18 +970,22 @@ class DialogflowTools:
             }
             rows = await self._run_bq_query(sql, params)
             now_est = self._get_current_est_time()
-            result = {
-                "source": "alerting_monitoring.dialogflow_metrics",
-                "window_hours": hours,
-                "bucket_minutes": bucket_minutes,
-                "time_range_end_est": self._to_est_string(now_est),
-                "points": rows,
-            }
-            return response_manager.prepare_response(result, "df_unique_sessions")
+            return json.dumps(
+                {
+                    "source": "alerting_monitoring.dialogflow_metrics",
+                    "window_hours": hours,
+                    "bucket_minutes": bucket_minutes,
+                    "time_range_end_est": self._to_est_string(now_est),
+                    "points": rows,
+                },
+                indent=2,
+            )
         except Exception as e:
             import traceback
-            result = {"error": str(e), "error_details": traceback.format_exc(), "tool": "df_unique_sessions"}
-            return response_manager.prepare_response(result, "df_unique_sessions")
+            return json.dumps(
+                {"error": str(e), "error_details": traceback.format_exc(), "tool": "df_unique_sessions"},
+                indent=2,
+            )
 
     async def df_overall_response_times(
         self,
@@ -968,18 +1001,22 @@ class DialogflowTools:
             }
             rows = await self._run_bq_query(sql, params)
             now_est = self._get_current_est_time()
-            result = {
-                "source": "alerting_monitoring.dialogflow_metrics",
-                "window_hours": hours,
-                "time_range_end_est": self._to_est_string(now_est),
-                "points": rows,
-                "unit": "seconds",
-            }
-            return response_manager.prepare_response(result, "df_overall_response_times")
+            return json.dumps(
+                {
+                    "source": "alerting_monitoring.dialogflow_metrics",
+                    "window_hours": hours,
+                    "time_range_end_est": self._to_est_string(now_est),
+                    "points": rows,
+                    "unit": "seconds",
+                },
+                indent=2,
+            )
         except Exception as e:
             import traceback
-            result = {"error": str(e), "error_details": traceback.format_exc(), "tool": "df_overall_response_times"}
-            return response_manager.prepare_response(result, "df_overall_response_times")
+            return json.dumps(
+                {"error": str(e), "error_details": traceback.format_exc(), "tool": "df_overall_response_times"},
+                indent=2,
+            )
 
     async def df_overall_status_success_failure(
         self,
@@ -1002,22 +1039,26 @@ class DialogflowTools:
             failures = await self._run_bq_query(base_sql, params_fail)
             successes = await self._run_bq_query(base_sql, params_success)
             now_est = self._get_current_est_time()
-            result = {
-                "source": "alerting_monitoring.dialogflow_metrics",
-                "window_hours": hours,
-                "time_range_end_est": self._to_est_string(now_est),
-                "failures": failures,
-                "successes": successes,
-            }
-            return response_manager.prepare_response(result, "df_overall_status_success_failure")
+            return json.dumps(
+                {
+                    "source": "alerting_monitoring.dialogflow_metrics",
+                    "window_hours": hours,
+                    "time_range_end_est": self._to_est_string(now_est),
+                    "failures": failures,
+                    "successes": successes,
+                },
+                indent=2,
+            )
         except Exception as e:
             import traceback
-            result = {
-                "error": str(e),
-                "error_details": traceback.format_exc(),
-                "tool": "df_overall_status_success_failure",
-            }
-            return response_manager.prepare_response(result, "df_overall_status_success_failure")
+            return json.dumps(
+                {
+                    "error": str(e),
+                    "error_details": traceback.format_exc(),
+                    "tool": "df_overall_status_success_failure",
+                },
+                indent=2,
+            )
 
     async def df_failures_by_failure_reason(
         self,
@@ -1035,18 +1076,22 @@ class DialogflowTools:
             totals = await self._run_bq_query(sql_total, params)
             by_reason = await self._run_bq_query(sql_by_reason, params)
             now_est = self._get_current_est_time()
-            result = {
-                "source": "alerting_monitoring.dialogflow_metrics",
-                "window_hours": hours,
-                "time_range_end_est": self._to_est_string(now_est),
-                "totals": totals,
-                "by_failure_reason": by_reason,
-            }
-            return response_manager.prepare_response(result, "df_failures_by_failure_reason")
+            return json.dumps(
+                {
+                    "source": "alerting_monitoring.dialogflow_metrics",
+                    "window_hours": hours,
+                    "time_range_end_est": self._to_est_string(now_est),
+                    "totals": totals,
+                    "by_failure_reason": by_reason,
+                },
+                indent=2,
+            )
         except Exception as e:
             import traceback
-            result = {"error": str(e), "error_details": traceback.format_exc(), "tool": "df_failures_by_failure_reason"}
-            return response_manager.prepare_response(result, "df_failures_by_failure_reason")
+            return json.dumps(
+                {"error": str(e), "error_details": traceback.format_exc(), "tool": "df_failures_by_failure_reason"},
+                indent=2,
+            )
 
     async def df_backend_call_volume(
         self,
@@ -1066,19 +1111,23 @@ class DialogflowTools:
             by_backend = await self._run_bq_query(sql_by_backend, params)
             normalized = await self._run_bq_query(sql_normalized, params)
             now_est = self._get_current_est_time()
-            result = {
-                "source": "alerting_monitoring.dialogflow_metrics",
-                "window_hours": hours,
-                "time_range_end_est": self._to_est_string(now_est),
-                "totals": totals,
-                "by_backend_uri": by_backend,
-                "by_normalized_backend": normalized,
-            }
-            return response_manager.prepare_response(result, "df_backend_call_volume")
+            return json.dumps(
+                {
+                    "source": "alerting_monitoring.dialogflow_metrics",
+                    "window_hours": hours,
+                    "time_range_end_est": self._to_est_string(now_est),
+                    "totals": totals,
+                    "by_backend_uri": by_backend,
+                    "by_normalized_backend": normalized,
+                },
+                indent=2,
+            )
         except Exception as e:
             import traceback
-            result = {"error": str(e), "error_details": traceback.format_exc(), "tool": "df_backend_call_volume"}
-            return response_manager.prepare_response(result, "df_backend_call_volume")
+            return json.dumps(
+                {"error": str(e), "error_details": traceback.format_exc(), "tool": "df_backend_call_volume"},
+                indent=2,
+            )
 
     async def df_call_volume_by_flow(
         self,
@@ -1094,17 +1143,21 @@ class DialogflowTools:
             }
             rows = await self._run_bq_query(sql, params)
             now_est = self._get_current_est_time()
-            result = {
-                "source": "alerting_monitoring.dialogflow_metrics",
-                "window_hours": hours,
-                "time_range_end_est": self._to_est_string(now_est),
-                "by_flow_name": rows,
-            }
-            return response_manager.prepare_response(result, "df_call_volume_by_flow")
+            return json.dumps(
+                {
+                    "source": "alerting_monitoring.dialogflow_metrics",
+                    "window_hours": hours,
+                    "time_range_end_est": self._to_est_string(now_est),
+                    "by_flow_name": rows,
+                },
+                indent=2,
+            )
         except Exception as e:
             import traceback
-            result = {"error": str(e), "error_details": traceback.format_exc(), "tool": "df_call_volume_by_flow"}
-            return response_manager.prepare_response(result, "df_call_volume_by_flow")
+            return json.dumps(
+                {"error": str(e), "error_details": traceback.format_exc(), "tool": "df_call_volume_by_flow"},
+                indent=2,
+            )
 
     async def df_backend_response_times(
         self,
@@ -1120,18 +1173,22 @@ class DialogflowTools:
             }
             rows = await self._run_bq_query(sql, params)
             now_est = self._get_current_est_time()
-            result = {
-                "source": "alerting_monitoring.dialogflow_metrics",
-                "window_hours": hours,
-                "time_range_end_est": self._to_est_string(now_est),
-                "points": rows,
-                "unit": "ms",
-            }
-            return response_manager.prepare_response(result, "df_backend_response_times")
+            return json.dumps(
+                {
+                    "source": "alerting_monitoring.dialogflow_metrics",
+                    "window_hours": hours,
+                    "time_range_end_est": self._to_est_string(now_est),
+                    "points": rows,
+                    "unit": "ms",
+                },
+                indent=2,
+            )
         except Exception as e:
             import traceback
-            result = {"error": str(e), "error_details": traceback.format_exc(), "tool": "df_backend_response_times"}
-            return response_manager.prepare_response(result, "df_backend_response_times")
+            return json.dumps(
+                {"error": str(e), "error_details": traceback.format_exc(), "tool": "df_backend_response_times"},
+                indent=2,
+            )
 
     async def df_backend_modem_health_response_times(
         self,
@@ -1149,23 +1206,27 @@ class DialogflowTools:
             overall = await self._run_bq_query(sql_overall, params)
             modem_only = await self._run_bq_query(sql_modem, params)
             now_est = self._get_current_est_time()
-            result = {
-                "source": "alerting_monitoring.dialogflow_metrics",
-                "window_hours": hours,
-                "time_range_end_est": self._to_est_string(now_est),
-                "overall": overall,
-                "modem_health_only": modem_only,
-                "unit": "ms",
-            }
-            return response_manager.prepare_response(result, "df_backend_modem_health_response_times")
+            return json.dumps(
+                {
+                    "source": "alerting_monitoring.dialogflow_metrics",
+                    "window_hours": hours,
+                    "time_range_end_est": self._to_est_string(now_est),
+                    "overall": overall,
+                    "modem_health_only": modem_only,
+                    "unit": "ms",
+                },
+                indent=2,
+            )
         except Exception as e:
             import traceback
-            result = {
-                "error": str(e),
-                "error_details": traceback.format_exc(),
-                "tool": "df_backend_modem_health_response_times",
-            }
-            return response_manager.prepare_response(result, "df_backend_modem_health_response_times")
+            return json.dumps(
+                {
+                    "error": str(e),
+                    "error_details": traceback.format_exc(),
+                    "tool": "df_backend_modem_health_response_times",
+                },
+                indent=2,
+            )
 
     async def df_backend_failures_by_http_code(
         self,
@@ -1183,22 +1244,26 @@ class DialogflowTools:
             totals = await self._run_bq_query(sql_total, params)
             by_code = await self._run_bq_query(sql_by_code, params)
             now_est = self._get_current_est_time()
-            result = {
-                "source": "alerting_monitoring.dialogflow_metrics",
-                "window_hours": hours,
-                "time_range_end_est": self._to_est_string(now_est),
-                "totals": totals,
-                "by_http_code": by_code,
-            }
-            return response_manager.prepare_response(result, "df_backend_failures_by_http_code")
+            return json.dumps(
+                {
+                    "source": "alerting_monitoring.dialogflow_metrics",
+                    "window_hours": hours,
+                    "time_range_end_est": self._to_est_string(now_est),
+                    "totals": totals,
+                    "by_http_code": by_code,
+                },
+                indent=2,
+            )
         except Exception as e:
             import traceback
-            result = {
-                "error": str(e),
-                "error_details": traceback.format_exc(),
-                "tool": "df_backend_failures_by_http_code",
-            }
-            return response_manager.prepare_response(result, "df_backend_failures_by_http_code")
+            return json.dumps(
+                {
+                    "error": str(e),
+                    "error_details": traceback.format_exc(),
+                    "tool": "df_backend_failures_by_http_code",
+                },
+                indent=2,
+            )
 
     async def df_backend_failures_by_backend_uri(
         self,
@@ -1216,24 +1281,28 @@ class DialogflowTools:
             totals = await self._run_bq_query(sql_total, params)
             by_uri = await self._run_bq_query(sql_by_uri, params)
             now_est = self._get_current_est_time()
-            result = {
-                "source": "alerting_monitoring.dialogflow_metrics",
-                "window_hours": hours,
-                "time_range_end_est": self._to_est_string(now_est),
-                "totals": totals,
-                "by_backend_uri": by_uri,
-            }
-            return response_manager.prepare_response(result, "df_backend_failures_by_backend_uri")
+            return json.dumps(
+                {
+                    "source": "alerting_monitoring.dialogflow_metrics",
+                    "window_hours": hours,
+                    "time_range_end_est": self._to_est_string(now_est),
+                    "totals": totals,
+                    "by_backend_uri": by_uri,
+                },
+                indent=2,
+            )
         except Exception as e:
             import traceback
-            result = {
-                "error": str(e),
-                "error_details": traceback.format_exc(),
-                "tool": "df_backend_failures_by_backend_uri",
-            }
-            return response_manager.prepare_response(result, "df_backend_failures_by_backend_uri")
+            return json.dumps(
+                {
+                    "error": str(e),
+                    "error_details": traceback.format_exc(),
+                    "tool": "df_backend_failures_by_backend_uri",
+                },
+                indent=2,
+            )
 
-    # ========================================
+        # ========================================
     # CONVERSATION TRANSCRIPT ANALYTICS
     # (Optimized with 7-day default)
     # ========================================
@@ -1244,10 +1313,10 @@ class DialogflowTools:
         # Cap at 7 days (168 hours) for performance
         capped_hours = min(hours, 168)
         start_est = now_est - timedelta(hours=capped_hours)
-
+        
         now_utc = now_est.astimezone(ZoneInfo("UTC"))
         start_utc = start_est.astimezone(ZoneInfo("UTC"))
-
+        
         return {
             "start_ts_raw": start_utc.replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S"),
             "end_ts": now_utc.replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S"),
@@ -1266,16 +1335,14 @@ class DialogflowTools:
                 location="us-central1"
             )
             now_est = self._get_current_est_time()
-            result = {
+            return json.dumps({
                 "window_hours": min(hours, 168),
                 "query_time_est": self._to_est_string(now_est),
                 "confidence_distribution": rows
-            }
-            return response_manager.prepare_response(result, "df_intent_confidence_distribution")
+            }, indent=2)
         except Exception as e:
             import traceback
-            result = {"error": str(e), "trace": traceback.format_exc()}
-            return response_manager.prepare_response(result, "df_intent_confidence_distribution")
+            return json.dumps({"error": str(e), "trace": traceback.format_exc()}, indent=2)
 
     async def df_fallback_analysis(self, hours: int = 24) -> str:
         """Deflection and fallback tracking. Default: last 24 hours."""
@@ -1290,20 +1357,18 @@ class DialogflowTools:
                 location="us-central1"
             )
             now_est = self._get_current_est_time()
-            result_row = rows[0] if rows else {}
-            result = {
+            result = rows[0] if rows else {}
+            return json.dumps({
                 "window_hours": min(hours, 168),
                 "query_time_est": self._to_est_string(now_est),
-                "fallback_sessions": result_row.get("fallback_sessions", 0),
-                "fallback_turns": result_row.get("fallback_turns", 0),
-                "fallback_session_rate_percent": result_row.get("fallback_session_rate", 0),
-                "sample_unresolved_utterances": result_row.get("sample_unresolved_utterances", [])
-            }
-            return response_manager.prepare_response(result, "df_fallback_analysis")
+                "fallback_sessions": result.get("fallback_sessions", 0),
+                "fallback_turns": result.get("fallback_turns", 0),
+                "fallback_session_rate_percent": result.get("fallback_session_rate", 0),
+                "sample_unresolved_utterances": result.get("sample_unresolved_utterances", [])
+            }, indent=2)
         except Exception as e:
             import traceback
-            result = {"error": str(e), "trace": traceback.format_exc()}
-            return response_manager.prepare_response(result, "df_fallback_analysis")
+            return json.dumps({"error": str(e), "trace": traceback.format_exc()}, indent=2)
 
     async def df_flow_traversal(self, hours: int = 24) -> str:
         """Flow and page traversal heatmap. Default: last 24 hours."""
@@ -1318,16 +1383,14 @@ class DialogflowTools:
                 location="us-central1"
             )
             now_est = self._get_current_est_time()
-            result = {
+            return json.dumps({
                 "window_hours": min(hours, 168),
                 "query_time_est": self._to_est_string(now_est),
                 "flow_page_visits": rows
-            }
-            return response_manager.prepare_response(result, "df_flow_traversal")
+            }, indent=2)
         except Exception as e:
             import traceback
-            result = {"error": str(e), "trace": traceback.format_exc()}
-            return response_manager.prepare_response(result, "df_flow_traversal")
+            return json.dumps({"error": str(e), "trace": traceback.format_exc()}, indent=2)
 
     async def df_session_replay(self, session_id: str, days: int = 7) -> str:
         """Complete turn-by-turn conversation transcript. Default: search last 7 days."""
@@ -1339,28 +1402,25 @@ class DialogflowTools:
                 location="us-central1"
             )
             now_est = self._get_current_est_time()
-
+            
             if not rows:
-                result = {
+                return json.dumps({
                     "session_id": session_id,
                     "error": "Session not found",
                     "note": f"No session found in the last {days} days. Try increasing the search window.",
                     "query_time_est": self._to_est_string(now_est)
-                }
-                return response_manager.prepare_response(result, "df_session_replay", max_items=50)
-
-            result = {
+                }, indent=2)
+            
+            return json.dumps({
                 "session_id": session_id,
                 "searched_last_days": days,
                 "query_time_est": self._to_est_string(now_est),
                 "total_turns": len(rows),
                 "transcript": rows
-            }
-            return response_manager.prepare_response(result, "df_session_replay", max_items=50)
+            }, indent=2)
         except Exception as e:
             import traceback
-            result = {"error": str(e), "trace": traceback.format_exc()}
-            return response_manager.prepare_response(result, "df_session_replay", max_items=50)
+            return json.dumps({"error": str(e), "trace": traceback.format_exc()}, indent=2)
 
     async def df_execution_complexity(self, hours: int = 24, min_turns: int = 20) -> str:
         """Sessions with high conversation turn counts. Default: last 24 hours."""
@@ -1376,17 +1436,15 @@ class DialogflowTools:
                 location="us-central1"
             )
             now_est = self._get_current_est_time()
-            result = {
+            return json.dumps({
                 "window_hours": min(hours, 168),
                 "min_turns_threshold": min_turns,
                 "query_time_est": self._to_est_string(now_est),
                 "complex_sessions": rows
-            }
-            return response_manager.prepare_response(result, "df_execution_complexity")
+            }, indent=2)
         except Exception as e:
             import traceback
-            result = {"error": str(e), "trace": traceback.format_exc()}
-            return response_manager.prepare_response(result, "df_execution_complexity")
+            return json.dumps({"error": str(e), "trace": traceback.format_exc()}, indent=2)
 
     async def df_voice_latency(self, hours: int = 24) -> str:
         """Voice channel input/output audio latency analysis. Default: last 24 hours."""
@@ -1401,16 +1459,14 @@ class DialogflowTools:
                 location="us-central1"
             )
             now_est = self._get_current_est_time()
-            result = {
+            return json.dumps({
                 "window_hours": min(hours, 168),
                 "query_time_est": self._to_est_string(now_est),
                 "voice_latency_timeseries": rows
-            }
-            return response_manager.prepare_response(result, "df_voice_latency")
+            }, indent=2)
         except Exception as e:
             import traceback
-            result = {"error": str(e), "trace": traceback.format_exc()}
-            return response_manager.prepare_response(result, "df_voice_latency")
+            return json.dumps({"error": str(e), "trace": traceback.format_exc()}, indent=2)
 
     async def df_response_analysis(self, hours: int = 24) -> str:
         """Most common agent responses by page. Default: last 24 hours."""
@@ -1425,16 +1481,14 @@ class DialogflowTools:
                 location="us-central1"
             )
             now_est = self._get_current_est_time()
-            result = {
+            return json.dumps({
                 "window_hours": min(hours, 168),
                 "query_time_est": self._to_est_string(now_est),
                 "top_responses": rows
-            }
-            return response_manager.prepare_response(result, "df_response_analysis")
+            }, indent=2)
         except Exception as e:
             import traceback
-            result = {"error": str(e), "trace": traceback.format_exc()}
-            return response_manager.prepare_response(result, "df_response_analysis")
+            return json.dumps({"error": str(e), "trace": traceback.format_exc()}, indent=2)
 
     async def df_event_analysis(self, hours: int = 24) -> str:
         """Event triggers by page and flow. Default: last 24 hours."""
@@ -1449,16 +1503,14 @@ class DialogflowTools:
                 location="us-central1"
             )
             now_est = self._get_current_est_time()
-            result = {
+            return json.dumps({
                 "window_hours": min(hours, 168),
                 "query_time_est": self._to_est_string(now_est),
                 "event_triggers": rows
-            }
-            return response_manager.prepare_response(result, "df_event_analysis")
+            }, indent=2)
         except Exception as e:
             import traceback
-            result = {"error": str(e), "trace": traceback.format_exc()}
-            return response_manager.prepare_response(result, "df_event_analysis")
+            return json.dumps({"error": str(e), "trace": traceback.format_exc()}, indent=2)
 
     async def df_failed_sessions_export(self, hours: int = 24, limit: int = 50) -> str:
         """Export sessions that ended in fallback or had issues. Default: last 24 hours."""
@@ -1474,17 +1526,15 @@ class DialogflowTools:
                 location="us-central1"
             )
             now_est = self._get_current_est_time()
-            result = {
+            return json.dumps({
                 "window_hours": min(hours, 168),
                 "query_time_est": self._to_est_string(now_est),
                 "failed_sessions_count": len(rows),
                 "failed_sessions": rows
-            }
-            return response_manager.prepare_response(result, "df_failed_sessions_export", max_items=limit)
+            }, indent=2)
         except Exception as e:
             import traceback
-            result = {"error": str(e), "trace": traceback.format_exc()}
-            return response_manager.prepare_response(result, "df_failed_sessions_export", max_items=limit)
+            return json.dumps({"error": str(e), "trace": traceback.format_exc()}, indent=2)
 
     async def df_conversation_summary(self, session_id: str, days: int = 7) -> str:
         """Quick conversation statistics for a session. Default: search last 7 days."""
@@ -1496,28 +1546,25 @@ class DialogflowTools:
                 location="us-central1"
             )
             now_est = self._get_current_est_time()
-            result_row = rows[0] if rows else {}
-
-            if not result_row:
-                result = {
+            result = rows[0] if rows else {}
+            
+            if not result:
+                return json.dumps({
                     "session_id": session_id,
                     "error": "Session not found",
                     "note": f"No session found in the last {days} days.",
                     "query_time_est": self._to_est_string(now_est)
-                }
-                return response_manager.prepare_response(result, "df_conversation_summary")
-
-            result = {
+                }, indent=2)
+            
+            return json.dumps({
                 "session_id": session_id,
                 "searched_last_days": days,
                 "query_time_est": self._to_est_string(now_est),
-                "summary": result_row
-            }
-            return response_manager.prepare_response(result, "df_conversation_summary")
+                "summary": result
+            }, indent=2)
         except Exception as e:
             import traceback
-            result = {"error": str(e), "trace": traceback.format_exc()}
-            return response_manager.prepare_response(result, "df_conversation_summary")
+            return json.dumps({"error": str(e), "trace": traceback.format_exc()}, indent=2)
 
 
 # ---------- ADK wrappers ----------
@@ -1627,7 +1674,6 @@ async def df_backend_failures_by_backend_uri(
 async def df_get_session_details(session_id: str, hours: int = 24) -> str:
     return await DialogflowTools().df_get_session_details(session_id, hours)
 
-
 async def df_search_sessions(
     hours: int = 1,
     agent_id: Optional[str] = None,
@@ -1637,22 +1683,17 @@ async def df_search_sessions(
 ) -> str:
     return await DialogflowTools().df_search_sessions(hours, agent_id, channel, outcome, limit)
 
-
 async def df_session_analytics(hours: int = 1) -> str:
     return await DialogflowTools().df_session_analytics(hours)
-
 
 async def df_session_by_channel(hours: int = 1) -> str:
     return await DialogflowTools().df_session_by_channel(hours)
 
-
 async def df_session_by_outcome(hours: int = 1) -> str:
     return await DialogflowTools().df_session_by_outcome(hours)
 
-
 async def df_session_top_intents(hours: int = 1) -> str:
     return await DialogflowTools().df_session_top_intents(hours)
-
 
 # ========================================
 # ADK WRAPPERS - Transcript Analytics
@@ -1663,56 +1704,48 @@ async def df_intent_confidence_distribution(hours: int = 24) -> str:
     tools = DialogflowTools()
     return await tools.df_intent_confidence_distribution(hours)
 
-
 async def df_fallback_analysis(hours: int = 24) -> str:
     """Get deflection and fallback tracking. Max 168 hours (7 days)."""
     tools = DialogflowTools()
     return await tools.df_fallback_analysis(hours)
-
 
 async def df_flow_traversal(hours: int = 24) -> str:
     """Get flow and page traversal heatmap. Max 168 hours (7 days)."""
     tools = DialogflowTools()
     return await tools.df_flow_traversal(hours)
 
-
 async def df_session_replay(session_id: str, days: int = 7) -> str:
     """Get complete turn-by-turn conversation transcript. Searches last N days."""
     tools = DialogflowTools()
     return await tools.df_session_replay(session_id, days)
-
 
 async def df_execution_complexity(hours: int = 24, min_turns: int = 20) -> str:
     """Get sessions with high conversation turn counts. Max 168 hours (7 days)."""
     tools = DialogflowTools()
     return await tools.df_execution_complexity(hours, min_turns)
 
-
 async def df_voice_latency(hours: int = 24) -> str:
     """Get voice channel latency analysis. Max 168 hours (7 days)."""
     tools = DialogflowTools()
     return await tools.df_voice_latency(hours)
-
 
 async def df_response_analysis(hours: int = 24) -> str:
     """Get most common agent responses. Max 168 hours (7 days)."""
     tools = DialogflowTools()
     return await tools.df_response_analysis(hours)
 
-
 async def df_event_analysis(hours: int = 24) -> str:
     """Get event triggers by page and flow. Max 168 hours (7 days)."""
     tools = DialogflowTools()
     return await tools.df_event_analysis(hours)
-
 
 async def df_failed_sessions_export(hours: int = 24, limit: int = 50) -> str:
     """Export sessions that ended in fallback. Max 168 hours (7 days)."""
     tools = DialogflowTools()
     return await tools.df_failed_sessions_export(hours, limit)
 
-
 async def df_conversation_summary(session_id: str, days: int = 7) -> str:
     """Get quick conversation statistics for a session. Searches last N days."""
     tools = DialogflowTools()
     return await tools.df_conversation_summary(session_id, days)
+
