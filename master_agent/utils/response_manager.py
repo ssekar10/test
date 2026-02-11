@@ -22,7 +22,7 @@ class ResponseManager:
         self._truncation_count = 0
 
     # ✅ BYPASS FLAG (class attribute)
-    CONVERSATION_BYPASS = True  # Set False after implementing chunks
+    CONVERSATION_BYPASS = False  # Set False after implementing chunks
 
     def prepare_response(self, data: Any, tool_name: str = "unknown", max_items: int = None) -> str:
         """Token-safe response with conversation bypass."""

@@ -1280,7 +1280,10 @@ class DialogflowTools:
     async def df_fallback_analysis(self, hours: int = 24) -> str:
         """Deflection and fallback tracking. Default: last 24 hours."""
         try:
-            bounds = self._get_time_window_bounds_days(hours)
+            # ✅ Fixed: Use existing method (remove _days)
+            bounds = self._get_time_window_bounds(hours)
+            
+            # ✅ Now query uses @params instead of {{{{ }}}}
             rows = await self._run_bq_query(
                 queries.DF_FALLBACK_ANALYSIS,
                 params={
@@ -1289,9 +1292,12 @@ class DialogflowTools:
                 },
                 location="us-central1"
             )
+            
             now_est = self._get_current_est_time()
             result_row = rows[0] if rows else {}
+            
             result = {
+                "source": "dfcx_analytics.dfcx_transcript",
                 "window_hours": min(hours, 168),
                 "query_time_est": self._to_est_string(now_est),
                 "fallback_sessions": result_row.get("fallback_sessions", 0),
@@ -1299,11 +1305,14 @@ class DialogflowTools:
                 "fallback_session_rate_percent": result_row.get("fallback_session_rate", 0),
                 "sample_unresolved_utterances": result_row.get("sample_unresolved_utterances", [])
             }
+            
             return response_manager.prepare_response(result, "df_fallback_analysis")
+            
         except Exception as e:
             import traceback
             result = {"error": str(e), "trace": traceback.format_exc()}
             return response_manager.prepare_response(result, "df_fallback_analysis")
+
 
     async def df_flow_traversal(self, hours: int = 24) -> str:
         """Flow and page traversal heatmap. Default: last 24 hours."""
@@ -1329,38 +1338,72 @@ class DialogflowTools:
             result = {"error": str(e), "trace": traceback.format_exc()}
             return response_manager.prepare_response(result, "df_flow_traversal")
 
-    async def df_session_replay(self, session_id: str, days: int = 7) -> str:
-        """Complete turn-by-turn conversation transcript. Default: search last 7 days."""
+    async def df_session_replay(self, session_id: str, days: int = 7, max_turns: int = 20) -> str:
+        """
+        Turn-by-turn conversation transcript with STRICT token limits.
+        Default: 20 turns (safe for ANY session).
+        """
         try:
-            query_with_params = queries.DF_SESSION_REPLAY.replace("{{session_id}}", session_id).replace("{{days}}", str(days))
-            rows = await self._run_bq_query(
-                query_with_params,
-                params=None,
-                location="us-central1"
-            )
+            # ✅ HARD CAP at 20 turns (prevents token overflow)
+            safe_max_turns = min(int(max_turns), 50)
+            
+            # ✅ MINIMAL query - only essential fields
+            query_template = f"""
+            SELECT
+                position AS turn_number,
+                CAST(request_time AS STRING) AS request_time,
+                SUBSTR(CAST(user_utterance AS STRING), 1, 200) AS user_utterance,
+                SUBSTR(CAST(intent_display_name AS STRING), 1, 100) AS intent_display_name,
+                CAST(intent_confidence_score AS STRING) AS intent_confidence_score,
+                SUBSTR(CAST(page_display_name AS STRING), 1, 100) AS page_display_name,
+                SUBSTR(CAST(agent_response AS STRING), 1, 300) AS agent_response
+            FROM {queries.DFCX_TRANSCRIPT_TABLE}
+            WHERE session_id = @session_id
+            AND session_start_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @days DAY)
+            ORDER BY position
+            LIMIT @max_turns
+            """
+            
+            params = {
+                "session_id": session_id,
+                "days": int(days),
+                "max_turns": safe_max_turns
+            }
+            
+            rows = await self._run_bq_query(query_template, params=params, location="us-central1")
             now_est = self._get_current_est_time()
-
+            
             if not rows:
                 result = {
                     "session_id": session_id,
                     "error": "Session not found",
-                    "note": f"No session found in the last {days} days. Try increasing the search window.",
+                    "note": f"No session found in last {days} days. Try increasing days parameter.",
                     "query_time_est": self._to_est_string(now_est)
                 }
-                return response_manager.prepare_response(result, "df_session_replay", max_items=50)
-
+                return response_manager.prepare_response(result, "df_session_replay")
+            
+            # ✅ Build minimal result
             result = {
                 "session_id": session_id,
-                "searched_last_days": days,
-                "query_time_est": self._to_est_string(now_est),
-                "total_turns": len(rows),
-                "transcript": rows
+                "searched_days": days,
+                "turns_returned": len(rows),
+                "max_turns_limit": safe_max_turns,
+                "transcript": rows,
+                "note": f"⚠️ Showing first {safe_max_turns} turns only. Session may have more. For full transcript, query BigQuery directly at: console.cloud.google.com/bigquery",
+                "query_time_est": self._to_est_string(now_est)
             }
-            return response_manager.prepare_response(result, "df_session_replay", max_items=50)
+            
+            return response_manager.prepare_response(result, "df_session_replay")
+            
         except Exception as e:
             import traceback
-            result = {"error": str(e), "trace": traceback.format_exc()}
-            return response_manager.prepare_response(result, "df_session_replay", max_items=50)
+            result = {
+                "session_id": session_id,
+                "error": str(e)[:200],  # Truncate error
+                "tool": "df_session_replay"
+            }
+            return response_manager.prepare_response(result, "df_session_replay")
+
 
     async def df_execution_complexity(self, hours: int = 24, min_turns: int = 20) -> str:
         """Sessions with high conversation turn counts. Default: last 24 hours."""
@@ -1676,10 +1719,11 @@ async def df_flow_traversal(hours: int = 24) -> str:
     return await tools.df_flow_traversal(hours)
 
 
-async def df_session_replay(session_id: str, days: int = 7) -> str:
-    """Get complete turn-by-turn conversation transcript. Searches last N days."""
+async def df_session_replay(session_id: str, days: int = 7, max_turns: int = 50) -> str:
+    """Get turn-by-turn transcript (limited to max_turns to prevent token overflow)."""
     tools = DialogflowTools()
-    return await tools.df_session_replay(session_id, days)
+    return await tools.df_session_replay(session_id, days, max_turns)
+
 
 
 async def df_execution_complexity(hours: int = 24, min_turns: int = 20) -> str:

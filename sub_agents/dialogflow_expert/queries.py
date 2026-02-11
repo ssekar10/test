@@ -253,7 +253,6 @@ SELECT
   has_end_session,
   has_wrapup,
   has_deflection,
-  final_session_parameters,
   ani,
   caller_ani,
   dnis,
@@ -391,8 +390,8 @@ DF_FALLBACK_ANALYSIS = f"""
 WITH fallback_sessions AS (
     SELECT DISTINCT session_id
     FROM {DFCX_TRANSCRIPT_TABLE}
-    WHERE session_start_time >= TIMESTAMP('{{{{start_ts_raw}}}}')
-      AND session_start_time <= TIMESTAMP('{{{{end_ts}}}}')
+    WHERE session_start_time >= TIMESTAMP(@start_ts_raw)
+      AND session_start_time <= TIMESTAMP(@end_ts)
       AND (intent_display_name LIKE '%fallback%' 
            OR intent_display_name LIKE '%no-match%'
            OR intent_confidence_score < 0.3)
@@ -403,16 +402,17 @@ SELECT
     ROUND(COUNT(DISTINCT fs.session_id) * 100.0 / 
           NULLIF((SELECT COUNT(DISTINCT session_id) 
                   FROM {DFCX_TRANSCRIPT_TABLE} 
-                  WHERE session_start_time >= TIMESTAMP('{{{{start_ts_raw}}}}')
-                    AND session_start_time <= TIMESTAMP('{{{{end_ts}}}}')), 0), 2) AS fallback_session_rate,
+                  WHERE session_start_time >= TIMESTAMP(@start_ts_raw)
+                    AND session_start_time <= TIMESTAMP(@end_ts)), 0), 2) AS fallback_session_rate,
     ARRAY_AGG(t.user_utterance IGNORE NULLS LIMIT 10) AS sample_unresolved_utterances
 FROM fallback_sessions fs
 LEFT JOIN {DFCX_TRANSCRIPT_TABLE} t
   ON fs.session_id = t.session_id
-  AND t.session_start_time >= TIMESTAMP('{{{{start_ts_raw}}}}')
-  AND t.session_start_time <= TIMESTAMP('{{{{end_ts}}}}')
+  AND t.session_start_time >= TIMESTAMP(@start_ts_raw)
+  AND t.session_start_time <= TIMESTAMP(@end_ts)
   AND (t.intent_display_name LIKE '%fallback%' OR t.intent_confidence_score < 0.3)
 """
+
 
 DF_FLOW_TRAVERSAL = f"""
 SELECT
