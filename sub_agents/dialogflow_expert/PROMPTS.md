@@ -1,253 +1,950 @@
-# Dialogflow Expert Sub-Agent Test Prompts
+# Dialogflow Expert: User Prompt Guide
 
-Comprehensive test suite for validating session metadata tools and analytics capabilities.
+**Version:** 2.0.0  
+**Last Updated:** February 11, 2026
 
-## Quick Start Tests
+A comprehensive guide for interacting with the Dialogflow CX Expert sub-agent. Use natural language queries - the agent will automatically select the appropriate tools.
 
-Basic functionality check - Run these first to verify agent is working:
+---
 
-Show me the last 10 sessions in the past 1 hour
-What are the session analytics for the last hour?
-Show me session breakdown by channel for the last hour
+## 🎯 Quick Reference
 
-## 1. Session Search (df_search_sessions)
+| Task | Example Prompt | Tool Used |
+|------|----------------|-----------|
+| List agents | "Show me all Dialogflow agents" | `list_dialogflow_agents` |
+| Agent config | "Get configuration for XA Agent" | `get_agent_details_fast` |
+| Intent list | "List all intents for DR-agent" | `list_intents` |
+| Traffic | "Show unique sessions in last 3 hours" | `df_unique_sessions` |
+| Failures | "Backend failures by HTTP code, last 6 hours" | `df_backend_failures_by_http_code` |
+| NLU quality | "How is our bot performing?" | `df_intent_confidence_distribution` |
+| Session replay | "Show full conversation for session abc-123" | `df_session_replay` |
 
-### Basic Search
+---
 
-Show me the last 50 sessions in the past 1 hour
-Search for sessions in the last 2 hours
-Find the most recent 30 sessions
-List the last 100 sessions from the past 6 hours
+## 1. Agent Discovery & Configuration
 
-### Custom Limits
+### List All Agents
 
-Show me the last 10 sessions in the past hour
-Find 25 sessions from the last 3 hours
-Get 5 most recent sessions
+```
+"List all Dialogflow agents"
+"Show me agents in the us region"
+"Which Dialogflow agents are in us-central1?"
+```
 
-## 2. Session Details (df_get_session_details)
+**Response includes:**
+- Agent count
+- Agent names and IDs
+- Default languages
+- Time zones
 
-### Get Specific Session
+---
 
-What are the complete details for session [paste session_id from previous search]?
-Get session details for 065GQ2DnR9-Teu0AAWc1_sV_A
-Show me full details for session xyz-abc-123 in the last 2 hours
+### Get Agent Configuration
 
-### Extended Time Windows
+```
+"Show me configuration for XA Agent"
+"Get details for DR-agent"
+"What is the time zone for RobTest agent?"
+"Is spell correction enabled for XA Agent?"
+```
 
-Find session details for [session_id] in the last 48 hours
-Get session [session_id] from the last 7 days
+**Response includes:**
+- Display name, languages, time zone
+- Logging settings
+- Spell correction status
+- Supported features
 
-### Error Cases
+**Note:** Use `get_agent_details_fast` for speed (cached 5 min). If you need fresh data:
+```
+"Get fresh configuration for XA Agent"
+"Show me updated details for DR-agent"
+```
 
-Get session details for fake-session-id-12345
+---
 
-## 3. Filter by Channel
+### List Intents
 
-### Voice/Phone Channel
+```
+"List all intents for XA Agent"
+"Show me intents in DR-agent"
+"How many intents does RobTest have?"
+```
 
-Show me sessions on the phone channel in the last hour
-Search for voice channel sessions in the past 2 hours
-Find telephony sessions from the last 3 hours
+**Response includes:**
+- Intent count
+- Intent names and IDs
+- Training phrase counts
+- Parameter lists
 
-### Web Channel
+---
 
-List web channel sessions in the past hour
-Show me website sessions from the last 2 hours
+### Get Intent Details
 
-### App/Mobile Channel
+```
+"Show me training phrases for the 'order-status' intent"
+"Get details for 'troubleshoot.internet' intent in XA Agent"
+"What parameters does the 'billing' intent have?"
+```
 
-Find app channel sessions in the last hour
-Show mobile sessions from the past 3 hours
+**Response includes:**
+- Full list of training phrases
+- Parameter definitions (entity types, is_list, redact)
+- Labels
 
-## 4. Filter by Agent
+---
 
-Show sessions for agent_id 680ec6e9-b5b5-44d9-a3ec-5c186ad3438b in the last hour
-Search sessions for agent abc-123 in the past 2 hours
-Find sessions handled by agent [agent_id] in the last 6 hours
+### List Webhooks
 
-## 5. Filter by Outcome
+```
+"What webhooks does XA Agent have?"
+"Show webhook configuration for DR-agent"
+"Which webhooks are configured for RobTest?"
+```
 
-### Successful Outcomes
+**Response includes:**
+- Webhook count
+- Webhook names, URIs
+- Timeout settings
+- Request headers (if configured)
 
-Show me sessions with successful outcome in the last hour
-Find completed sessions in the past 2 hours
+**For webhook performance metrics** (latency, errors), delegate to Cloud Run specialist.
 
-### Deflections
+---
 
-Show me sessions with deflection outcome in the last hour
-Find deflected sessions in the past 3 hours
-How many sessions had deflections in the last 2 hours?
+## 2. Session Traffic & Performance
 
-### Failures
+### Unique Sessions
 
-Search for failed sessions in the last hour
-Show me incomplete sessions from the past 2 hours
+```
+"Show me unique sessions in the last hour"
+"How many Dialogflow sessions in the last 3 hours?"
+"Total vs unique sessions, last 6 hours"
+```
 
-### Transfers
+**Response includes:**
+- Timeseries (15-minute buckets by default)
+- Total sessions vs unique sessions
+- EST timestamps
 
-List sessions filtered by transfer outcome in the past hour
-Show transferred sessions in the last 3 hours
+---
 
-### No CCAIP Data
+### Overall Response Times
 
-Find sessions with no_ccaip_data outcome in the last hour
+```
+"What is the average Dialogflow response time?"
+"Show me DF response times for the last 2 hours"
+"How fast is Dialogflow responding?"
+```
 
-## 6. Session Analytics (df_session_analytics)
+**Response includes:**
+- Timeseries (per minute)
+- Average response time in seconds
+- EST timestamps
 
-### Basic Analytics
+---
 
-What are the session analytics for the last hour?
-Show me session statistics for the past 2 hours
-Give me aggregated session metrics for the last 3 hours
+### Success vs Failure Status
 
-### Performance Analysis
+```
+"What is the overall status of Dialogflow calls?"
+"Show me success vs failure sessions, last 3 hours"
+"How many Dialogflow failures in the last hour?"
+```
 
-Analyze session performance over the last hour
-What's the average session duration in the past 2 hours?
-How many sessions ended with deflection in the last hour?
+**Response includes:**
+- Success session count (timeseries)
+- Failure session count (timeseries)
+- Failure rate percentage
 
-### Time-Series Analysis
+**Alert threshold:** >10% failure rate
 
-Show me session volume trend by minute for the last hour
-What's the session analytics time series for the past 3 hours?
+---
 
-## 7. Channel Breakdown (df_session_by_channel)
+### Failures by Reason
 
-Show me session breakdown by channel for the last hour
-What channels are being used in the past 2 hours?
-Break down sessions by channel for the last 3 hours
-Which channels have the most sessions in the past 6 hours?
-Compare channel performance for the last hour
+```
+"Show me failure reasons for the last 2 hours"
+"Why are Dialogflow calls failing?"
+"Breakdown of failures by reason"
+```
 
-## 8. Outcome Distribution (df_session_by_outcome)
+**Response includes:**
+- Total failure count (timeseries)
+- Failures grouped by reason (webhook_timeout, backend_error, etc.)
+- Top 3-5 failure reasons
 
-What are the session outcomes in the last hour?
-Show me outcome distribution for the past 2 hours
-Break down sessions by heuristic outcome for the last 3 hours
-What outcomes do sessions have in the past hour?
-What's the deflection rate in the last 2 hours?
+---
 
-## 9. Top Intents (df_session_top_intents)
+## 3. Backend Performance & Failures
 
-What are the top intents by session count in the last hour?
-Show me the most common intents from the past 2 hours
-Which intents are triggered most in the last 3 hours?
-List the top 20 intents by session volume for the past hour
-What are the top 10 intents in the last 6 hours?
+### Backend Call Volume
 
-## 10. Combined Filters (Advanced)
+```
+"Show me backend call volume, last 3 hours"
+"How many backend calls in the last hour?"
+"Backend traffic breakdown by URI"
+```
 
-### Channel + Outcome
+**Response includes:**
+- Total backend calls (timeseries)
+- Calls by backend URI (timeseries)
+- Normalized backend URIs (removes path/query params)
 
-Show me phone channel sessions with deflection outcome in the last 2 hours
-Find web sessions with successful outcome in the past hour
-Search for voice channel failures in the last 3 hours
+---
 
-### Agent + Channel
+### Call Volume by Flow
 
-Find sessions for agent abc-123 on the web channel in the past hour
-Show me phone sessions for agent 680ec6e9-b5b5-44d9-a3ec-5c186ad3438b in the last 2 hours
+```
+"Show me call volume by Dialogflow flow"
+"Which flows are getting the most traffic?"
+"Backend calls grouped by flow name, last 2 hours"
+```
 
-### Agent + Outcome + Channel
+**Response includes:**
+- Timeseries of calls per flow
+- Top flows by volume
 
-Search for successful sessions on the telephony channel in the last 3 hours, limit 25
-Find deflected phone sessions for agent xyz in the past hour
+---
 
-## 11. Comparative Analysis
+### Backend Response Times
 
-### Time Comparisons
+```
+"Show me backend response times, last 3 hours"
+"Which backend is the slowest?"
+"Average backend latency per URI"
+```
 
-Compare session analytics between the last hour and the previous hour
-Show me session breakdown by channel for 1 hour vs 3 hours
-What are the top intents in the last hour vs the last 6 hours?
+**Response includes:**
+- Average latency (ms) by backend URI
+- Timeseries (per minute)
+- Excludes modem health check by default
 
-### Metric Comparisons
+**Modem health check variant:**
+```
+"Show me modem health check backend response times"
+```
 
-Compare deflection rates across all channels in the last 2 hours
-Which channel has the highest average session duration in the past 3 hours?
+---
 
-## 12. Troubleshooting Scenarios
+### Backend Failures by HTTP Code
 
-### Session Issues
+```
+"Show me backend failures by HTTP code, last 6 hours"
+"Which HTTP errors are occurring?"
+"503 vs 500 failures breakdown"
+```
 
-Show me sessions with incomplete status in the last hour
-Find sessions that didn't end normally in the past 2 hours
-Which sessions had errors in the last 3 hours?
+**Response includes:**
+- Total failure count (timeseries)
+- Failures by HTTP code (503, 500, 429, etc.)
+- Average latency per HTTP code
 
-### CCAIP Issues
+**Common HTTP codes:**
+- `503` - Service Unavailable (downstream capacity)
+- `500` - Internal Server Error (backend crash)
+- `429` - Rate Limit Exceeded
+- `404` - Not Found (bad endpoint)
 
-Show me sessions with CCAIP deflection in the last hour
-Which CCAIP menus were selected most in the past 2 hours?
-Find sessions with CCAIP queue issues in the last hour
+---
 
-## 13. Business Intelligence Queries
+### Backend Failures by URI
 
-What's the average session duration by channel in the last 3 hours?
-How many sessions had deflections vs regular completions in the past hour?
-What's the deflection rate by channel for the last 2 hours?
-Which outcomes have the highest average turns in the past 6 hours?
+```
+"Show me backend failures by URI, last 6 hours"
+"Which backends are failing the most?"
+"Failures grouped by normalized backend URL"
+```
 
-## 14. CCAIP-Specific Queries
+**Response includes:**
+- Total failures (timeseries)
+- Failures by normalized backend URL
+- Failure reasons (webhook_timeout, backend_error)
+- HTTP codes
 
-Show me sessions with CCAIP menu selections in the last hour
-Which CCAIP menus were selected most in the past 3 hours?
-Find sessions with CCAIP deflection in the last 2 hours
-What are the top CCAIP queue IDs in the past hour?
+---
 
-## 15. Multi-Step Workflows
+## 4. Session Metadata & Search
 
-Step 1: Show me the last 10 sessions in the past hour
-Step 2: [Pick a session_id from results]
-Step 3: Get full details for session [session_id]
-Step 4: What was the head intent and outcome for that session?
+### Get Session Details
 
-Step 1: What are the top intents in the last hour?
-Step 2: [Pick top intent]
-Step 3: Show me sessions with that intent in the past hour
+```
+"Show me details for session abc-123-xyz"
+"Get full info for session abc-123-xyz"
+"What happened in session abc-123-xyz?" (searches last 24 hours)
+```
 
-## 16. Performance Testing
+**Optional: Specify search window (up to 7 days):**
+```
+"Get session abc-123-xyz from the last 48 hours"
+"Search for session abc-123-xyz in the past week"
+```
 
-Show me 100 sessions in the last 6 hours
-Search for sessions with all filters applied: agent [id], channel phone, outcome success, limit 50, for the past 3 hours
+**Response includes (30+ fields):**
+- Session start/end times, duration
+- Channel (TELEPHONY, WEB, APP)
+- Agent ID
+- Number of turns
+- Head intent (first intent matched)
+- Heuristic outcome (deflect, wrapup, incomplete)
+- CCAIP data (selected menu, service type, division, market)
+- Caller info (ANI, transfer module, callback requested)
+- Session parameters (JSON)
 
-## 17. Edge Cases and Validation
+**Error handling:**
+- If session not found: "Session not found in the last X hours. Try increasing time window."
 
-Search for sessions with limit 5 in the past hour
-Find sessions in the last 24 hours
-Show me sessions with no filters applied for the past 30 minutes
-Get session details for a non-existent session ID: fake-session-123
+---
 
-## 18. Real-World Business Queries
+### Search Sessions
 
-How many phone sessions deflected to live agents in the last hour?
-What's the average conversation length for successful vs failed sessions in the past 2 hours?
-Which market/division has the most sessions in the last 3 hours?
-Show me sessions that transferred to a specific module in the past hour
+```
+"Show me sessions in the last hour"
+"Find phone sessions in the past 3 hours"
+"Show me deflected sessions from the last 2 hours"
+```
 
-## Expected Results Guide
+**With filters:**
+```
+"Search for sessions with agent [agent-id], channel phone, outcome deflect, limit 50, last 3 hours"
+"Show me web sessions that wrapped up, last hour"
+"Find incomplete sessions for agent XA, last 6 hours"
+```
 
-For df_search_sessions: Returns session_id, timestamps, duration, channel, agent_id, turns, intent, outcome, market, division
+**Filters:**
+- `agent_id` - Filter by specific agent
+- `channel` - TELEPHONY, WEB, APP
+- `outcome` - deflect, wrapup, incomplete
+- `limit` - Max results (default 50)
 
-For df_get_session_details: Returns all 30+ fields including CCAIP data, caller info, transfer details, parameters
+**Response includes:**
+- Session count
+- Session list (session_id, timestamps, duration, channel, turns, intent, outcome)
+- Filter summary
 
-For df_session_analytics: Returns total_sessions, avg_duration, avg_turns, deflection_count, wrapup_count, incomplete_sessions, timeseries
+---
 
-For df_session_by_channel: Returns channel, session_count, avg_duration, avg_turns, deflection_count
+### Session Analytics
 
-For df_session_by_outcome: Returns heuristic_outcome, session_count, avg_turns, deflection_count
+```
+"Show me session analytics for the last hour"
+"Aggregated session stats, last 3 hours"
+"How many sessions deflected in the past 2 hours?"
+```
 
-For df_session_top_intents: Returns head_intent, session_count, avg_turns (top 20)
+**Response includes:**
+- Total sessions
+- Average duration (seconds)
+- Average turns per session
+- Deflection count & rate (%)
+- Wrapup count
+- Incomplete session count
+- Timeseries (per minute)
 
-## Validation Checklist
+**Alert thresholds:**
+- Deflection rate: >70% = good
+- Incomplete rate: >15% = investigate
 
-After testing, verify:
-- All 6 new tools work without errors
-- Time windows are respected (1h, 2h, 3h, 6h)
-- Filters work (agent_id, channel, outcome)
-- Limit parameter works (default 50, custom values)
-- Session details show all fields including JSON parameters
-- Aggregated stats match time-series data
-- Timestamps are in EST and properly formatted
-- Empty results return graceful messages
-- Invalid session_id returns "not found" message
+---
+
+### Sessions by Channel
+
+```
+"Show me session breakdown by channel"
+"How many phone vs web sessions in the last hour?"
+"Channel distribution, last 3 hours"
+```
+
+**Response includes:**
+- Channel (TELEPHONY, WEB, APP)
+- Session count per channel
+- Average duration & turns per channel
+- Deflection count per channel
+
+---
+
+### Sessions by Outcome
+
+```
+"Show me session breakdown by outcome"
+"How many deflected vs wrapped up sessions?"
+"Outcome distribution, last 2 hours"
+```
+
+**Response includes:**
+- Outcome (deflect, wrapup, incomplete)
+- Session count per outcome
+- Average turns per outcome
+- Deflection count
+
+---
+
+### Top Intents
+
+```
+"What are the top intents in the last hour?"
+"Show me most used intents, last 3 hours"
+"Top 20 intents by session count"
+```
+
+**Response includes:**
+- Top 20 intents (by session count)
+- Session count per intent
+- Average turns per intent
+
+---
+
+## 5. Conversation Transcript Analytics 🆕
+
+### Intent Confidence Distribution
+
+```
+"How is our bot performing?"
+"Show me intent confidence distribution"
+"Are users getting good intent matches?"
+```
+
+**Response includes:**
+- Confidence buckets:
+  - 🟢 High (0.9-1.0)
+  - 🟡 Medium (0.7-0.9)
+  - 🟠 Low (0.5-0.7)
+  - 🔴 Very Low (<0.5)
+- Turn count & percentage per bucket
+
+**Alert threshold:** >20% in Low/Very Low = NLU degraded
+
+**Use case:** Identify weak NLU, intents needing better training
+
+---
+
+### Fallback Analysis
+
+```
+"How many users are hitting fallback?"
+"What's our deflection rate?"
+"Show me fallback analysis, last 2 hours"
+```
+
+**Response includes:**
+- Fallback session count
+- Fallback session rate (%)
+- Fallback turn count
+- Sample unresolved utterances (up to 10)
+
+**Alert threshold:** >10% fallback rate = coverage gaps
+
+**Use case:** Measure bot effectiveness, identify what users are saying that isn't understood
+
+---
+
+### Flow Traversal Heatmap
+
+```
+"Which flows are users going through?"
+"Show me page traffic"
+"Popular conversation paths, last 3 hours"
+```
+
+**Response includes:**
+- Top 20 flow/page combinations
+- Session count per page
+- Turn count (total visits)
+- Average turn depth (when page is reached)
+
+**Use case:** Identify popular paths vs abandoned flows, entry pages vs deep pages
+
+---
+
+### Session Replay (Full Transcript)
+
+```
+"Show me the full conversation for session abc-123-xyz"
+"Replay conversation for session abc-123-xyz"
+"What happened in session abc-123-xyz?" (full transcript)
+"Show me transcript for session abc-123-xyz"
+"Give me conversation details for session abc-123-xyz"
+```
+
+**Response includes (turn-by-turn):**
+- Turn number (position)
+- User utterance
+- Intent matched (display name, confidence score)
+- Entities extracted
+- Flow → Page navigation
+- Agent response
+- Webhooks called (JSON)
+- Session parameters (JSON state)
+- Events triggered
+- Match type (INTENT, EVENT, NO_MATCH)
+- Channel (TELEPHONY, WEB, APP)
+
+**Parameters:**
+- `days` - Search window (default 7, max 7)
+- `max_turns` - Limit turns to prevent token overflow (default 50)
+
+**Use case:** Forensic troubleshooting for escalated issues, understand exact conversation flow
+
+---
+
+### Conversation Summary (Quick Stats)
+
+```
+"Give me a summary for session abc-123-xyz"
+"Quick stats for session abc-123-xyz"
+"Overview of session abc-123-xyz"
+```
+
+**Response includes:**
+- Duration (seconds)
+- Total turns
+- Flows visited (array)
+- Unique intents (count)
+- Fallback count
+- Channel (TELEPHONY, WEB, APP)
+- Language (if available)
+
+**Use case:** Fast triage before requesting full transcript
+
+---
+
+### Execution Complexity (High Turn Sessions)
+
+```
+"Show me sessions with too many turns"
+"Find looping conversations"
+"Complex sessions, last 3 hours"
+```
+
+**Parameters:**
+- `min_turns` - Threshold (default 20)
+
+**Response includes:**
+- Session ID
+- Turn count
+- Flows visited
+- Fallback count
+
+**Alert threshold:** >40 turns = potential conversation loop
+
+**Use case:** Detect overly complex paths, conversation loops
+
+---
+
+### Voice Latency
+
+```
+"Are there delays in our voice bot?"
+"Check telephony latency"
+"Voice channel latency, last 2 hours"
+```
+
+**Response includes (TELEPHONY channel only):**
+- Timeseries (per minute)
+- Average input audio latency (ms)
+- Average output audio latency (ms)
+- Max output latency (ms)
+- Turn count
+
+**Alert threshold:** >1000ms avg output latency  
+**Target:** <800ms
+
+**Use case:** Diagnose slow telephony responses (TTS, webhook delays)
+
+---
+
+### Response Analysis
+
+```
+"What are the most common bot responses?"
+"Are we saying the same things too often?"
+"Show me response frequency, last hour"
+```
+
+**Response includes:**
+- Top 30 agent responses
+- Page where response is used
+- Response count
+- Page-level percentage
+
+**Alert threshold:** Single response >15% = consider varying phrasing
+
+**Use case:** Audit reply consistency, identify repetitive responses
+
+---
+
+### Event Analysis
+
+```
+"What events are being triggered?"
+"Show me custom events by page"
+"Event triggers, last 3 hours"
+```
+
+**Response includes:**
+- Top 50 events
+- Event name
+- Page where triggered
+- Flow where triggered
+- Event count
+- Session count
+
+**Use case:** Debug custom event logic, validate event-based flow transitions
+
+---
+
+### Failed Sessions Export
+
+```
+"Show me all failed conversations in the last 2 hours"
+"Export sessions with fallback"
+"Find problematic sessions, last 6 hours"
+```
+
+**Criteria:**
+- Fallback count >0 OR
+- Turn count >30
+
+**Parameters:**
+- `limit` - Max sessions (default 50, max 100)
+
+**Response includes:**
+- Session ID
+- Session start time
+- Turn count
+- Fallback count
+- Ended in fallback (boolean)
+
+**Use case:** Batch analysis of failed conversations, prioritize sessions for investigation
+
+---
+
+## 6. Multi-Step Workflows
+
+### Workflow 1: Investigate High Failure Rate
+
+```
+Step 1: "What is the overall status of Dialogflow, last 3 hours?"
+→ Identifies failure rate
+
+Step 2: "Show me failures by reason, last 3 hours"
+→ Identifies top failure reason (e.g., webhook_timeout)
+
+Step 3: "Backend failures by HTTP code, last 3 hours"
+→ Identifies HTTP error codes
+
+Step 4: "Backend failures by URI, last 3 hours"
+→ Identifies specific failing backend
+
+Step 5: Delegate to Cloud Run specialist: "Show me performance for [backend-url]"
+```
+
+---
+
+### Workflow 2: NLU Quality Audit
+
+```
+Step 1: "How is our bot performing?"
+→ Shows intent confidence distribution
+
+Step 2 (if low confidence detected): "Show me fallback analysis"
+→ Identifies sample unresolved utterances
+
+Step 3: "List intents for XA Agent"
+→ Identifies which intents exist
+
+Step 4: "Get training phrases for [intent-name]"
+→ Reviews training data for weak intent
+
+Step 5: Add training phrases in Dialogflow Console
+```
+
+---
+
+### Workflow 3: Session Forensics
+
+```
+Step 1: "Give me a summary for session abc-123-xyz"
+→ Quick stats (duration, turns, fallback count)
+
+Step 2 (if fallback_count >0): "Show me full conversation for session abc-123-xyz"
+→ Turn-by-turn transcript
+
+Step 3: Analyze transcript for:
+  - Low confidence intents (<0.7)
+  - Missing entities
+  - Webhook failures
+  - Conversation loops (same page visited 3+ times)
+```
+
+---
+
+### Workflow 4: Backend Performance Investigation
+
+```
+Step 1: "Show me backend response times, last 3 hours"
+→ Identifies slowest backend
+
+Step 2: "Backend failures by URI, last 3 hours"
+→ Correlates latency with failures
+
+Step 3: Delegate to Cloud Run: "Show me resource utilization for [backend-service]"
+→ Checks if backend is CPU/memory constrained
+
+Step 4: Delegate to Cloud Run: "Show me logs for [backend-service], last hour"
+→ Identifies error patterns
+```
+
+---
+
+## 7. Time Window Best Practices
+
+### Recommended Time Windows
+
+| Query Type | Recommended Window | Max Window |
+|------------|-------------------|------------|
+| Real-time monitoring | 1 hour | 6 hours |
+| Failure investigation | 3 hours | 6 hours |
+| Session search | 1 hour | 7 days |
+| Session details | 24 hours | 7 days |
+| Transcript analytics | 1-3 hours | 7 days |
+
+### Performance Tips
+
+- **Start with 1 hour** for fastest results
+- **Increase to 3-6 hours** for trend analysis
+- **Use 24 hours** for session search (better hit rate)
+- **Avoid >6 hours** for metrics queries (slow, risk timeout)
+
+---
+
+## 8. Context & Location Handling
+
+### Location Inference
+
+The agent remembers location from previous queries:
+
+```
+User: "List agents in us region"
+→ Agent: [Lists agents in "us"]
+
+User: "Show me intents for XA Agent" (no location specified)
+→ Agent: [Uses "us" from previous query]
+
+User: "Get configuration for DR-agent"
+→ Agent: [Still uses "us"]
+```
+
+To reset location:
+```
+"List agents in us-central1"
+→ Switches to us-central1 for subsequent queries
+```
+
+---
+
+### Multi-Location Queries
+
+```
+"List agents in us and us-central1"
+
+Agent response:
+"I'll query one location at a time for optimal performance."
+→ Queries "us" first
+→ Then queries "us-central1"
+→ Presents combined results
+```
+
+---
+
+## 9. Error Messages & Troubleshooting
+
+### Common Errors
+
+#### Permission Denied
+```
+Error: "PERMISSION_DENIED"
+Solution: Ensure service account has:
+  - Dialogflow API Reader (for agent queries)
+  - BigQuery Data Viewer + BigQuery Job User (for analytics)
+```
+
+#### API Not Enabled
+```
+Error: "API has not been used in project"
+Solution: Enable Dialogflow CX API at:
+  https://console.cloud.google.com/apis/library/dialogflow.googleapis.com
+```
+
+#### Session Not Found
+```
+Error: "Session not found in the last 24 hours"
+Solution: Increase search window:
+  "Get session abc-123-xyz from the last 7 days"
+```
+
+#### BigQuery Timeout
+```
+Error: "Query timed out after 60 seconds"
+Solution:
+  1. Reduce time window (1 hour instead of 6)
+  2. Use aggregated queries instead of timeseries
+  3. Query during off-peak hours
+```
+
+---
+
+## 10. Advanced Prompts
+
+### Comparative Analysis
+
+```
+"Compare backend latency between billing-api and customer-data for the last 3 hours"
+"Show me deflection rate by channel, last 6 hours"
+"Which flow has the highest fallback rate?"
+```
+
+---
+
+### Threshold-Based Alerts
+
+```
+"Are there any backends with >500ms latency in the last hour?"
+"Show me sessions with >30 turns, last 3 hours"
+"Which intents have confidence <0.7 in the last hour?"
+```
+
+---
+
+### Business-Focused Queries
+
+```
+"How many phone sessions deflected to live agents in the last hour?"
+"What's the average conversation length for successful vs failed sessions?"
+"Which market/division has the most sessions?"
+"Show me sessions that transferred to [module-name]"
+```
+
+---
+
+## 11. Output Format Guidelines
+
+### BigQuery Results
+
+The agent **summarizes** BigQuery data, never dumps raw JSON:
+
+**Good response:**
+```
+"In the last hour, Dialogflow handled 10,992 successful sessions and 757 failures (6.4% failure rate). Top failure reason: webhook_timeout (41%). Backend latency averaged 245ms, with billing-api slowest at 890ms."
+```
+
+**Bad response:**
+```
+"Here are the results: [dumps 50 rows of JSON]"
+```
+
+---
+
+### Timestamps
+
+All timestamps are in **EST timezone**:
+```
+Query time: 2026-02-11 01:40:00 PM EST
+Time range: 2026-02-11 12:40:00 PM EST → 01:40:00 PM EST
+```
+
+---
+
+### Tables
+
+Comparative data is presented in **Markdown tables**:
+
+```
+| Backend URL | Calls | Avg Latency | Failures |
+|-------------|-------|-------------|----------|
+| billing-api.com | 1,245 | 890ms | 23 |
+| customer-data.net | 3,421 | 145ms | 2 |
+```
+
+---
+
+## 12. Testing & Validation Checklist
+
+After updates, test with these prompts:
+
+### Basic Functionality
+- [ ] "List all Dialogflow agents"
+- [ ] "Get configuration for XA Agent"
+- [ ] "List intents for XA Agent"
+- [ ] "Show me webhooks for XA Agent"
+
+### Session Metrics
+- [ ] "Unique sessions in the last hour"
+- [ ] "Overall response times, last 3 hours"
+- [ ] "Success vs failure, last hour"
+- [ ] "Backend failures by HTTP code, last 6 hours"
+
+### Session Metadata
+- [ ] "Get session details for [session-id]"
+- [ ] "Search for phone sessions, last hour"
+- [ ] "Session analytics, last 3 hours"
+- [ ] "Top intents, last hour"
+
+### Transcript Analytics
+- [ ] "How is our bot performing?"
+- [ ] "Show me fallback analysis"
+- [ ] "Show full conversation for session [session-id]"
+- [ ] "Give me a summary for session [session-id]"
+- [ ] "Voice latency, last 2 hours"
+
+### Edge Cases
+- [ ] "Get session details for fake-session-123" (should return "not found")
+- [ ] "Show me sessions from the last 24 hours" (max time window)
+- [ ] "List agents in invalid-location" (should return error)
+
+---
+
+## 13. Delegation Rules
+
+### When to Use Dialogflow Expert
+
+- Agent/intent/webhook configuration
+- Session traffic & metrics
+- Backend failures (Dialogflow-side)
+- Conversation transcripts & NLU quality
+- Flow traversal & event analysis
+
+### When to Delegate to Cloud Run Expert
+
+- Webhook infrastructure metrics (CPU, memory, instance count)
+- Cloud Run service performance (request latency p95, error rates)
+- Infrastructure troubleshooting (scaling, cold starts)
+
+**Example delegation:**
+```
+User: "Is the billing-api webhook slow?"
+
+Dialogflow Expert:
+"The billing-api webhook has an average backend response time of 890ms (DF-side measurement). For detailed infrastructure metrics (CPU, memory, instance scaling), use the Cloud Run specialist."
+```
+
+---
+
+## 📚 Additional Resources
+
+- **Architecture Diagram**: See README.md § Architecture
+- **Tool Reference**: See README.md § Features
+- **Error Handling**: See README.md § Error Handling
+- **Environment Setup**: See README.md § Environment Variables
+
+---
+
+## 🔄 Document Version
+
+- **Version:** 2.0.0
+- **Last Updated:** February 11, 2026
+- **Changelog:**
+  - Added 10 transcript analytics prompt patterns
+  - Added 6 session metadata prompt patterns
+  - Added multi-step workflow examples
+  - Added delegation rules
+  - Added time window best practices
