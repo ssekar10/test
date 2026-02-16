@@ -29,8 +29,6 @@ except ImportError:
     DIALOGFLOW_CX_AVAILABLE = False
     print("[DialogflowTools] WARNING: google-cloud-dialogflow-cx not installed")
 
-
-
 # Load environment variables from env/.env.dev (same pattern as Cloud Run expert)
 env_file = os.path.join(os.getcwd(), "env", ".env.dev")
 if os.path.exists(env_file):
@@ -114,7 +112,9 @@ class DialogflowTools:
         print(f"  - alerting_monitoring dataset ✓")
         print(f"  - dfcx_analytics dataset ✓")
 
-    # ---------- Time helpers ----------
+    # ========================================
+    # TIME HELPERS
+    # ========================================
 
     def _get_current_est_time(self) -> datetime:
         return datetime.now(EST_TZ)
@@ -130,20 +130,33 @@ class DialogflowTools:
     def _get_time_window_bounds(self, hours: int) -> Dict[str, str]:
         """Return ISO strings for BigQuery TIMESTAMP() function."""
         now_est = self._get_current_est_time()
-        # Ensure we look back from NOW
         start_est = now_est - timedelta(hours=hours)
 
-        # Convert to UTC for BigQuery comparison
         now_utc = now_est.astimezone(ZoneInfo("UTC"))
         start_utc = start_est.astimezone(ZoneInfo("UTC"))
 
-        # Format as YYYY-MM-DD HH:MM:SS (BigQuery friendly)
         return {
             "start_ts_raw": start_utc.strftime("%Y-%m-%d %H:%M:%S"),
             "end_ts": now_utc.strftime("%Y-%m-%d %H:%M:%S"),
         }
 
-    # ---------- Client helpers ----------
+    def _get_time_window_bounds_days(self, hours: int) -> dict:
+        """Convert hours to time bounds, capped at 7 days for transcript queries."""
+        now_est = self._get_current_est_time()
+        capped_hours = min(hours, 168)
+        start_est = now_est - timedelta(hours=capped_hours)
+
+        now_utc = now_est.astimezone(ZoneInfo("UTC"))
+        start_utc = start_est.astimezone(ZoneInfo("UTC"))
+
+        return {
+            "start_ts_raw": start_utc.replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S"),
+            "end_ts": now_utc.replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S"),
+        }
+
+    # ========================================
+    # CLIENT HELPERS
+    # ========================================
 
     def _get_regional_client(self, location: str, client_class):
         """Create a regional Dialogflow CX client with proper endpoint."""
@@ -187,7 +200,7 @@ class DialogflowTools:
         self,
         sql: str,
         params: Optional[Dict[str, Any]] = None,
-        location: str = "us-central1"  # ← NEW: Location parameter with default
+        location: str = "us-central1"
     ) -> List[Dict[str, Any]]:
         """Execute a parameterized BigQuery query with rate limiting and retries."""
         await bigquery_rate_limiter.acquire()
@@ -207,20 +220,16 @@ class DialogflowTools:
                 job_config.query_parameters = bq_params
 
             async def _run():
-                # ← NEW: Select appropriate client based on location
                 client = self._bq_clients.get(location, self.bq_client)
 
-                query_job = client.query(sql, job_config=job_config)  # ← CHANGED: Use location-specific client
+                query_job = client.query(sql, job_config=job_config)
                 result = query_job.result()
                 rows: List[Dict[str, Any]] = []
                 for row in result:
                     row_dict = dict(row)
-                    # Robust JSON-safe conversion for every field
                     for key, val in row_dict.items():
-                        # Convert datetime/date/time objects to ISO strings
                         if hasattr(val, 'isoformat'):
                             row_dict[key] = val.isoformat()
-                        # Ensure any non-standard types are strings
                         elif not isinstance(val, (str, int, float, bool, type(None), list, dict)):
                             row_dict[key] = str(val)
                     rows.append(row_dict)
@@ -229,11 +238,12 @@ class DialogflowTools:
             rows = await self._retry_with_backoff(_run)
             return rows
         except Exception as e:
-            # Enhanced error message with location context
             print(f"[DialogflowTools] BQ Execution Error (location={location}): {str(e)}")
             raise
 
-    # ---------- Session Metadata Queries (dfcx_session_metadata) ----------
+    # ========================================
+    # SESSION METADATA QUERIES (dfcx_session_metadata)
+    # ========================================
 
     async def df_get_session_details(self, session_id: str, hours: int = 24) -> str:
         """Get detailed information for a specific Dialogflow session.
@@ -292,7 +302,6 @@ class DialogflowTools:
         try:
             bounds = self._get_time_window_bounds(hours)
 
-            # Build dynamic SQL with proper WHERE clauses
             base_sql = f"""
             SELECT
             session_id,
@@ -319,7 +328,6 @@ class DialogflowTools:
                 "limit": limit
             }
 
-            # Add optional filters
             if agent_id:
                 base_sql += "  AND agent_id = @agent_id\n"
                 params["agent_id"] = agent_id
@@ -371,7 +379,6 @@ class DialogflowTools:
             }
             rows = await self._run_bq_query(sql, params)
 
-            # Calculate totals
             total_sessions = sum(r.get("total_sessions", 0) for r in rows)
             total_deflections = sum(r.get("deflection_count", 0) for r in rows)
             total_wrapups = sum(r.get("wrapup_count", 0) for r in rows)
@@ -486,7 +493,9 @@ class DialogflowTools:
             }
             return response_manager.prepare_response(result, "df_session_top_intents")
 
-    # ---------- Agent discovery & configuration ----------
+    # ========================================
+    # AGENT DISCOVERY & CONFIGURATION
+    # ========================================
 
     async def list_dialogflow_agents(self, location: Optional[str] = None) -> str:
         """List Dialogflow agents in a specific location."""
@@ -570,13 +579,11 @@ class DialogflowTools:
                 return response_manager.prepare_response(result, "get_agent_configuration")
             location = location or self.location
 
-            # Parse agent_id (display name or full resource)
             if "/" in agent_id and agent_id.startswith("projects/"):
                 parts = agent_id.split("/")
                 location = parts[3] if len(parts) >= 6 else location
                 agent_name = agent_id
             else:
-                # search by display name
                 print(f"[DEBUG] Searching for agent '{agent_id}' in location '{location}'")
                 agents_client = self._get_regional_client(location, dialogflow_cx.AgentsClient)
                 agent_name = None
@@ -656,7 +663,9 @@ class DialogflowTools:
         config.set_cached_config(cache_key, cfg)
         return cfg
 
-    # ---------- Intents ----------
+    # ========================================
+    # INTENTS
+    # ========================================
 
     async def list_intents(self, agent_id: str, location: Optional[str] = None) -> str:
         """List all intents for an agent (cached 5min)."""
@@ -722,13 +731,11 @@ class DialogflowTools:
                 return response_manager.prepare_response(result, "get_intent_details")
             location = location or self.location
 
-            # Resolve agent_name
             if "/" in agent_id and agent_id.startswith("projects/"):
                 parts = agent_id.split("/")
                 location = parts[3] if len(parts) >= 6 else location
                 agent_name = agent_id
             else:
-                # Try find agent by display name
                 agents_client = self._get_regional_client(location, dialogflow_cx.AgentsClient)
                 agent_name = None
                 if agents_client:
@@ -766,11 +773,9 @@ class DialogflowTools:
                 }
                 return response_manager.prepare_response(result, "get_intent_details")
 
-            # Resolve intent_name (display_name or ID)
             if "/" in intent_id and "intents/" in intent_id:
                 intent_name = intent_id
             else:
-                # Search by display name
                 print(f"[DEBUG] Searching for intent '{intent_id}'")
                 intents_result = await self._retry_with_backoff(intents_client.list_intents, parent=agent_name)
                 iid_lower = intent_id.lower()
@@ -836,7 +841,9 @@ class DialogflowTools:
             result = {"error": str(e), "error_details": traceback.format_exc(), "tool": "get_intent_details"}
             return response_manager.prepare_response(result, "get_intent_details")
 
-    # ---------- Webhooks ----------
+    # ========================================
+    # WEBHOOKS
+    # ========================================
 
     async def list_webhooks(self, agent_id: str, location: Optional[str] = None) -> str:
         """List configured webhooks for an agent (cached 5min)."""
@@ -873,11 +880,9 @@ class DialogflowTools:
                 }
                 if hasattr(webhook, "disabled"):
                     cfg["disabled"] = webhook.disabled
-                # Generic Web Service
                 if hasattr(webhook, "generic_web_service") and webhook.generic_web_service:
                     gws = webhook.generic_web_service
                     cfg["uri"] = getattr(gws, "uri", "N/A")
-                    # timeout
                     timeout_seconds = 30
                     if hasattr(gws, "request_timeout") and gws.request_timeout:
                         try:
@@ -889,7 +894,6 @@ class DialogflowTools:
                         cfg["request_headers"] = dict(gws.request_headers)
                     if getattr(gws, "allowed_ca_certs", None):
                         cfg["has_ca_certs"] = True
-                # Service Directory
                 elif hasattr(webhook, "service_directory") and webhook.service_directory:
                     sd = webhook.service_directory
                     cfg["service_directory"] = {
@@ -923,7 +927,9 @@ class DialogflowTools:
             }
             return response_manager.prepare_response(result, "list_webhooks")
 
-    # ---------- BigQuery metrics tools (alerting_monitoring.dialogflow_metrics) ----------
+    # ========================================
+    # BIGQUERY METRICS (alerting_monitoring.dialogflow_metrics)
+    # ========================================
 
     async def df_unique_sessions(
         self,
@@ -1234,24 +1240,8 @@ class DialogflowTools:
             return response_manager.prepare_response(result, "df_backend_failures_by_backend_uri")
 
     # ========================================
-    # CONVERSATION TRANSCRIPT ANALYTICS
-    # (Optimized with 7-day default)
+    # CONVERSATION TRANSCRIPT ANALYTICS (dfcx_analytics.dfcx_transcript)
     # ========================================
-
-    def _get_time_window_bounds_days(self, hours: int) -> dict:
-        """Convert hours to time bounds, capped at 7 days for transcript queries."""
-        now_est = self._get_current_est_time()
-        # Cap at 7 days (168 hours) for performance
-        capped_hours = min(hours, 168)
-        start_est = now_est - timedelta(hours=capped_hours)
-
-        now_utc = now_est.astimezone(ZoneInfo("UTC"))
-        start_utc = start_est.astimezone(ZoneInfo("UTC"))
-
-        return {
-            "start_ts_raw": start_utc.replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S"),
-            "end_ts": now_utc.replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S"),
-        }
 
     async def df_intent_confidence_distribution(self, hours: int = 24) -> str:
         """Intent matching confidence distribution. Default: last 24 hours."""
@@ -1280,10 +1270,8 @@ class DialogflowTools:
     async def df_fallback_analysis(self, hours: int = 24) -> str:
         """Deflection and fallback tracking. Default: last 24 hours."""
         try:
-            # ✅ Fixed: Use existing method (remove _days)
             bounds = self._get_time_window_bounds(hours)
-            
-            # ✅ Now query uses @params instead of {{{{ }}}}
+
             rows = await self._run_bq_query(
                 queries.DF_FALLBACK_ANALYSIS,
                 params={
@@ -1292,10 +1280,10 @@ class DialogflowTools:
                 },
                 location="us-central1"
             )
-            
+
             now_est = self._get_current_est_time()
             result_row = rows[0] if rows else {}
-            
+
             result = {
                 "source": "dfcx_analytics.dfcx_transcript",
                 "window_hours": min(hours, 168),
@@ -1305,14 +1293,13 @@ class DialogflowTools:
                 "fallback_session_rate_percent": result_row.get("fallback_session_rate", 0),
                 "sample_unresolved_utterances": result_row.get("sample_unresolved_utterances", [])
             }
-            
+
             return response_manager.prepare_response(result, "df_fallback_analysis")
-            
+
         except Exception as e:
             import traceback
             result = {"error": str(e), "trace": traceback.format_exc()}
             return response_manager.prepare_response(result, "df_fallback_analysis")
-
 
     async def df_flow_traversal(self, hours: int = 24) -> str:
         """Flow and page traversal heatmap. Default: last 24 hours."""
@@ -1344,10 +1331,8 @@ class DialogflowTools:
         Default: 20 turns (safe for ANY session).
         """
         try:
-            # ✅ HARD CAP at 20 turns (prevents token overflow)
             safe_max_turns = min(int(max_turns), 50)
-            
-            # ✅ MINIMAL query - only essential fields
+
             query_template = f"""
             SELECT
                 position AS turn_number,
@@ -1363,16 +1348,16 @@ class DialogflowTools:
             ORDER BY position
             LIMIT @max_turns
             """
-            
+
             params = {
                 "session_id": session_id,
                 "days": int(days),
                 "max_turns": safe_max_turns
             }
-            
+
             rows = await self._run_bq_query(query_template, params=params, location="us-central1")
             now_est = self._get_current_est_time()
-            
+
             if not rows:
                 result = {
                     "session_id": session_id,
@@ -1381,8 +1366,7 @@ class DialogflowTools:
                     "query_time_est": self._to_est_string(now_est)
                 }
                 return response_manager.prepare_response(result, "df_session_replay")
-            
-            # ✅ Build minimal result
+
             result = {
                 "session_id": session_id,
                 "searched_days": days,
@@ -1392,18 +1376,17 @@ class DialogflowTools:
                 "note": f"⚠️ Showing first {safe_max_turns} turns only. Session may have more. For full transcript, query BigQuery directly at: console.cloud.google.com/bigquery",
                 "query_time_est": self._to_est_string(now_est)
             }
-            
+
             return response_manager.prepare_response(result, "df_session_replay")
-            
+
         except Exception as e:
             import traceback
             result = {
                 "session_id": session_id,
-                "error": str(e)[:200],  # Truncate error
+                "error": str(e)[:200],
                 "tool": "df_session_replay"
             }
             return response_manager.prepare_response(result, "df_session_replay")
-
 
     async def df_execution_complexity(self, hours: int = 24, min_turns: int = 20) -> str:
         """Sessions with high conversation turn counts. Default: last 24 hours."""
@@ -1563,7 +1546,9 @@ class DialogflowTools:
             return response_manager.prepare_response(result, "df_conversation_summary")
 
 
-# ---------- ADK wrappers ----------
+# ========================================
+# ADK WRAPPERS - Agent Discovery & Configuration
+# ========================================
 
 async def list_dialogflow_agents(location: Optional[str] = None) -> str:
     tools = DialogflowTools()
@@ -1594,6 +1579,10 @@ async def list_webhooks(agent_id: str, location: Optional[str] = None) -> str:
     tools = DialogflowTools()
     return await tools.list_webhooks(agent_id, location)
 
+
+# ========================================
+# ADK WRAPPERS - BigQuery Metrics (alerting_monitoring.dialogflow_metrics)
+# ========================================
 
 async def df_unique_sessions(
     hours: int = 1,
@@ -1666,7 +1655,10 @@ async def df_backend_failures_by_backend_uri(
     return await tools.df_backend_failures_by_backend_uri(hours)
 
 
-# Session metadata wrappers
+# ========================================
+# ADK WRAPPERS - Session Metadata (dfcx_analytics.dfcx_session_metadata)
+# ========================================
+
 async def df_get_session_details(session_id: str, hours: int = 24) -> str:
     return await DialogflowTools().df_get_session_details(session_id, hours)
 
@@ -1698,7 +1690,7 @@ async def df_session_top_intents(hours: int = 1) -> str:
 
 
 # ========================================
-# ADK WRAPPERS - Transcript Analytics
+# ADK WRAPPERS - Transcript Analytics (dfcx_analytics.dfcx_transcript)
 # ========================================
 
 async def df_intent_confidence_distribution(hours: int = 24) -> str:
@@ -1723,7 +1715,6 @@ async def df_session_replay(session_id: str, days: int = 7, max_turns: int = 50)
     """Get turn-by-turn transcript (limited to max_turns to prevent token overflow)."""
     tools = DialogflowTools()
     return await tools.df_session_replay(session_id, days, max_turns)
-
 
 
 async def df_execution_complexity(hours: int = 24, min_turns: int = 20) -> str:
