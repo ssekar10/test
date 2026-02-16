@@ -1,7 +1,7 @@
 # Dialogflow Expert: User Prompt Guide
 
-**Version:** 2.0.0  
-**Last Updated:** February 11, 2026
+**Version:** 2.1.0  
+**Last Updated:** February 16, 2026
 
 A comprehensive guide for interacting with the Dialogflow CX Expert sub-agent. Use natural language queries - the agent will automatically select the appropriate tools.
 
@@ -9,19 +9,26 @@ A comprehensive guide for interacting with the Dialogflow CX Expert sub-agent. U
 
 ## 🎯 Quick Reference
 
-| Task | Example Prompt | Tool Used |
-|------|----------------|-----------|
-| List agents | "Show me all Dialogflow agents" | `list_dialogflow_agents` |
-| Agent config | "Get configuration for XA Agent" | `get_agent_details_fast` |
-| Intent list | "List all intents for DR-agent" | `list_intents` |
-| Traffic | "Show unique sessions in last 3 hours" | `df_unique_sessions` |
-| Failures | "Backend failures by HTTP code, last 6 hours" | `df_backend_failures_by_http_code` |
-| NLU quality | "How is our bot performing?" | `df_intent_confidence_distribution` |
-| Session replay | "Show full conversation for session abc-123" | `df_session_replay` |
+| Task | Example Prompt | Tool Used | Section |
+|------|----------------|-----------|---------|
+| List agents | "Show me all Dialogflow agents" | `list_dialogflow_agents` | REST API |
+| Agent config | "Get configuration for XA Agent" | `get_agent_details_fast` | REST API |
+| Intent list | "List all intents for DR-agent" | `list_intents` | REST API |
+| Webhooks | "What webhooks does XA Agent have?" | `list_webhooks` | REST API |
+| Traffic | "Show unique sessions in last 3 hours" | `df_unique_sessions` | Monitoring |
+| Failures | "Backend failures by HTTP code, last 6 hours" | `df_backend_failures_by_http_code` | Monitoring |
+| NLU quality | "How is our bot performing?" | `df_intent_confidence_distribution` | Monitoring |
+| Session replay | "Show full conversation for session abc-123" | `df_session_replay` | Monitoring |
 
 ---
 
-## 1. Agent Discovery & Configuration
+# SECTION 1: REST API TOOLS - DISCOVERY & CONFIGURATION (6 TOOLS)
+
+This section covers all Dialogflow CX API-based tools for agent discovery, intent inspection, and webhook configuration.
+
+---
+
+## 1.1 Agent Discovery & Configuration
 
 ### List All Agents
 
@@ -62,6 +69,8 @@ A comprehensive guide for interacting with the Dialogflow CX Expert sub-agent. U
 
 ---
 
+## 1.2 Intent Management
+
 ### List Intents
 
 ```
@@ -93,6 +102,8 @@ A comprehensive guide for interacting with the Dialogflow CX Expert sub-agent. U
 
 ---
 
+## 1.3 Webhook Configuration
+
 ### List Webhooks
 
 ```
@@ -111,7 +122,13 @@ A comprehensive guide for interacting with the Dialogflow CX Expert sub-agent. U
 
 ---
 
-## 2. Session Traffic & Performance
+# SECTION 2: MONITORING & ANALYTICS TOOLS (26 TOOLS)
+
+This section covers all BigQuery-based monitoring, analytics, and conversation intelligence tools.
+
+---
+
+## 2.1 Session Traffic & Performance
 
 ### Unique Sessions
 
@@ -175,7 +192,7 @@ A comprehensive guide for interacting with the Dialogflow CX Expert sub-agent. U
 
 ---
 
-## 3. Backend Performance & Failures
+## 2.2 Backend Performance & Failures
 
 ### Backend Call Volume
 
@@ -263,7 +280,7 @@ A comprehensive guide for interacting with the Dialogflow CX Expert sub-agent. U
 
 ---
 
-## 4. Session Metadata & Search
+## 2.3 Session Metadata & Search
 
 ### Get Session Details
 
@@ -393,7 +410,7 @@ A comprehensive guide for interacting with the Dialogflow CX Expert sub-agent. U
 
 ---
 
-## 5. Conversation Transcript Analytics 🆕
+## 2.4 Conversation Transcript Analytics
 
 ### Intent Confidence Distribution
 
@@ -618,7 +635,11 @@ A comprehensive guide for interacting with the Dialogflow CX Expert sub-agent. U
 
 ---
 
-## 6. Multi-Step Workflows
+# SECTION 3: WORKFLOWS & BEST PRACTICES
+
+---
+
+## 3.1 Multi-Step Workflows
 
 ### Workflow 1: Investigate High Failure Rate
 
@@ -696,7 +717,7 @@ Step 4: Delegate to Cloud Run: "Show me logs for [backend-service], last hour"
 
 ---
 
-## 7. Time Window Best Practices
+## 3.2 Time Window Best Practices
 
 ### Recommended Time Windows
 
@@ -717,7 +738,7 @@ Step 4: Delegate to Cloud Run: "Show me logs for [backend-service], last hour"
 
 ---
 
-## 8. Context & Location Handling
+## 3.3 Context & Location Handling
 
 ### Location Inference
 
@@ -756,7 +777,7 @@ Agent response:
 
 ---
 
-## 9. Error Messages & Troubleshooting
+## 3.4 Error Messages & Troubleshooting
 
 ### Common Errors
 
@@ -793,7 +814,7 @@ Solution:
 
 ---
 
-## 10. Advanced Prompts
+## 3.5 Advanced Prompts
 
 ### Comparative Analysis
 
@@ -826,7 +847,7 @@ Solution:
 
 ---
 
-## 11. Output Format Guidelines
+## 3.6 Output Format Guidelines
 
 ### BigQuery Results
 
@@ -848,8 +869,8 @@ The agent **summarizes** BigQuery data, never dumps raw JSON:
 
 All timestamps are in **EST timezone**:
 ```
-Query time: 2026-02-11 01:40:00 PM EST
-Time range: 2026-02-11 12:40:00 PM EST → 01:40:00 PM EST
+Query time: 2026-02-16 05:30:00 PM EST
+Time range: 2026-02-16 04:30:00 PM EST → 05:30:00 PM EST
 ```
 
 ---
@@ -867,29 +888,29 @@ Comparative data is presented in **Markdown tables**:
 
 ---
 
-## 12. Testing & Validation Checklist
+## 3.7 Testing & Validation Checklist
 
 After updates, test with these prompts:
 
-### Basic Functionality
+### Section 1: REST API Tools
 - [ ] "List all Dialogflow agents"
 - [ ] "Get configuration for XA Agent"
 - [ ] "List intents for XA Agent"
 - [ ] "Show me webhooks for XA Agent"
 
-### Session Metrics
+### Section 2: Monitoring Tools - Session Metrics
 - [ ] "Unique sessions in the last hour"
 - [ ] "Overall response times, last 3 hours"
 - [ ] "Success vs failure, last hour"
 - [ ] "Backend failures by HTTP code, last 6 hours"
 
-### Session Metadata
+### Section 2: Monitoring Tools - Session Metadata
 - [ ] "Get session details for [session-id]"
 - [ ] "Search for phone sessions, last hour"
 - [ ] "Session analytics, last 3 hours"
 - [ ] "Top intents, last hour"
 
-### Transcript Analytics
+### Section 2: Monitoring Tools - Transcript Analytics
 - [ ] "How is our bot performing?"
 - [ ] "Show me fallback analysis"
 - [ ] "Show full conversation for session [session-id]"
@@ -903,15 +924,15 @@ After updates, test with these prompts:
 
 ---
 
-## 13. Delegation Rules
+## 3.8 Delegation Rules
 
 ### When to Use Dialogflow Expert
 
-- Agent/intent/webhook configuration
-- Session traffic & metrics
-- Backend failures (Dialogflow-side)
-- Conversation transcripts & NLU quality
-- Flow traversal & event analysis
+- Agent/intent/webhook configuration (Section 1: REST API)
+- Session traffic & metrics (Section 2: Monitoring)
+- Backend failures (Dialogflow-side) (Section 2: Monitoring)
+- Conversation transcripts & NLU quality (Section 2: Monitoring)
+- Flow traversal & event analysis (Section 2: Monitoring)
 
 ### When to Delegate to Cloud Run Expert
 
@@ -932,7 +953,7 @@ Dialogflow Expert:
 ## 📚 Additional Resources
 
 - **Architecture Diagram**: See README.md § Architecture
-- **Tool Reference**: See README.md § Features
+- **Tool Reference**: See README.md § Section 1 (REST API) and Section 2 (Monitoring)
 - **Error Handling**: See README.md § Error Handling
 - **Environment Setup**: See README.md § Environment Variables
 
@@ -940,11 +961,11 @@ Dialogflow Expert:
 
 ## 🔄 Document Version
 
-- **Version:** 2.0.0
-- **Last Updated:** February 11, 2026
+- **Version:** 2.1.0
+- **Last Updated:** February 16, 2026
 - **Changelog:**
-  - Added 10 transcript analytics prompt patterns
-  - Added 6 session metadata prompt patterns
-  - Added multi-step workflow examples
-  - Added delegation rules
-  - Added time window best practices
+  - ✅ Reorganized to Section 1 (REST API - 6 tools) and Section 2 (Monitoring - 26 tools)
+  - ✅ Updated Quick Reference table with section indicators
+  - ✅ Moved workflows and best practices to Section 3
+  - ✅ All REST API prompts now in Section 1
+  - ✅ All Monitoring/Analytics prompts now in Section 2
