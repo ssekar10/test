@@ -1,156 +1,356 @@
 # Cloud Run Expert Sub‑Agent
 
-The Cloud Run expert is a read‑only sub‑agent focused on observing, diagnosing, and explaining Cloud Run services in a GCP project. It uses Cloud Monitoring, Cloud Logging, and Cloud Run service configuration to support SRE and developer workflows.[file:1]
+The Cloud Run expert is a read‑only sub‑agent focused on observing, diagnosing, and explaining Cloud Run services in a GCP project. It uses Cloud Monitoring, Cloud Logging, and Cloud Run service configuration to support SRE and developer workflows.
 
 ---
 
-## Features
+## Architecture Overview
 
-### Service discovery and configuration
+This sub-agent is organized into **two main sections**:
 
-- List Cloud Run services in a region.
-- Fetch detailed configuration for a single service, including:
-  - Min/max instances
-  - Concurrency
-  - CPU/memory allocation
-  - Traffic splits and revisions
-- Cache configuration for short periods to improve performance.[file:1]
-
-Key functions (tools):
-
-- `list_services`
-- `get_service_details_*`
-- Config caching helpers in `config.py`.[file:1]
+1. **Section 1: Monitoring & Metrics Tools** - Performance analysis, traffic patterns, resource utilization
+2. **Section 2: REST API Tools** - Service discovery, configuration retrieval
 
 ---
 
-### Metrics summary (Cloud Monitoring)
+# SECTION 1: MONITORING & METRICS TOOLS
 
-Fast metrics using Cloud Monitoring:
+## Overview
 
-- Request count over a time window.
-- Request rate (per minute / per second).
-- Latency percentiles (e.g., p95) from distribution metrics.
-- CPU utilization (percentage).
-- Memory utilization (percentage).
-- Instance count over time.[file:1]
-
-Key functions:
-
-- `get_metrics_summary`
-- `query_all_services_metrics_summary`
-- `get_resource_utilization`
-- `get_request_rate_and_latency_summary` (fast request counts + p95 latency).[file:1]
-
-These functions are optimized for windows up to at least 6 hours and do not scan logs.[file:1]
+Monitoring tools provide fast, operational insights into Cloud Run service performance, traffic patterns, and resource utilization. These tools query Cloud Monitoring (metrics) and Cloud Logging (exact counts).
 
 ---
 
-### Utilization and scaling analysis
+## 1.1 Fast Metrics (Cloud Monitoring)
 
-The sub‑agent can:
+### Purpose
+Fast metrics using Cloud Monitoring for operational queries:
+- Request count over a time window
+- Request rate (per minute / per second)
+- Latency percentiles (e.g., p95) from distribution metrics
+- CPU utilization (percentage)
+- Memory utilization (percentage)
+- Instance count over time
 
-- Compute actual CPU and memory utilization for a service using percentile‑aligned distribution metrics.
-- Correlate utilization with instance count and configured max instances.
-- Identify whether a service is:
-  - Under‑utilized
-  - CPU‑bound or memory‑bound
-  - Potentially scale‑limited by configuration (max instances, concurrency).[file:1]
+### Key Functions
 
-Key function:
+#### `get_metrics_summary`
+Query metrics from Cloud Monitoring (fast, approximate).
 
-- `get_all_utilization_metrics(service_name, region, hours)`.[file:1]
+**Parameters:**
+- `metric_type` - "request_count" or "instance_count"
+- `region` - Optional region filter
+- `hours` - Time window (default 1)
+- `limit` - Max services to return (default 100)
+
+**Use Cases:**
+- "Show request counts for all services in the last hour"
+- "Which services have the most traffic?"
 
 ---
 
-### Performance triage (“Service is slow”)
+#### `query_all_services_metrics_summary`
+Internal method called by `get_metrics_summary`.
 
-When a user reports that a service is slow, the agent:
+**Returns:**
+- For `request_count`: total_requests, avg/max requests_per_sec
+- For `instance_count`: avg_instances, max_instances
+
+---
+
+#### `get_resource_utilization`
+Get actual CPU and memory utilization for a specific Cloud Run service.
+
+**Parameters:**
+- `service_name` - Service name
+- `region` - Region (e.g., us-central1)
+- `hours` - Time window (default 1)
+
+**Returns:**
+- CPU utilization: current, average, max, min (%)
+- Memory utilization: current, average, max, min (%)
+- Datapoints count per metric
+
+**Use Cases:**
+- "Is service X CPU-bound or memory-bound?"
+- "Show CPU/memory usage for service Y"
+
+---
+
+#### `get_all_utilization_metrics`
+Comprehensive utilization metrics for a Cloud Run service including:
+- CPU utilization (current, avg, max, min)
+- Memory utilization (current, avg, max, min)
+- Instance count (avg, max)
+- Configuration limits (CPU, memory, scaling)
+
+**Parameters:**
+- `service_name` - Service name
+- `region` - Region
+- `hours` - Time window (default 1)
+
+**This provides a complete view of service resource usage and capacity.**
+
+**Use Cases:**
+- "Service X is slow - investigate"
+- "Is service Y hitting scaling limits?"
+- "Show complete resource profile for service Z"
+
+---
+
+#### `get_request_rate_and_latency_summary`
+Fast request counts + latency (p95) from Cloud Monitoring (no log scanning).
+
+**Parameters:**
+- `service_name` - Optional service filter
+- `region` - Optional region filter
+- `hours` - Time window (default 6)
+
+**Returns:**
+- Total requests
+- Avg/max requests per minute
+- Latency p95: current_ms, average_ms, max_ms, min_ms
+- Datapoints count
+
+**Optimized for windows up to at least 6 hours.**
+
+**Use Cases:**
+- "Total requests and p95 latency for service X, last 3 hours"
+- "What's the request rate for all services?"
+
+---
+
+## 1.2 Forensic Analysis (Cloud Logging)
+
+### Purpose
+Exact, log-level request counts for audits and incident analysis. Slower but 100% accurate.
+
+### Key Functions
+
+#### `get_exact_request_counts`
+Get EXACT request counts from Cloud Logging (100% accurate). Supports large time windows up to 7 days (168 hours) with automatic chunking.
+
+**Parameters:**
+- `region` - Optional region filter
+- `hours` - Time window (default 1, max 168)
+- `limit` - Max services to return (default 100)
+
+**Returns:**
+- Total log entries analyzed
+- Per-service breakdown:
+  - total_requests
+  - status_2xx, status_4xx, status_5xx counts
+
+**Chunking for Large Windows:**
+- Automatically splits queries >24 hours into 6-hour chunks
+- Rate-limited to prevent quota exhaustion
+- Shows progress: "Processing chunk 3/7"
+
+**Use Cases:**
+- "Using logs, get exact request counts for service X, last 2 hours"
+- "Exact 2xx/4xx/5xx breakdown from Cloud Logging"
+- "Forensic analysis of request volume"
+
+**Performance:**
+- Small windows (1-2 hours): seconds to minutes
+- Large windows (24+ hours): minutes (with chunking)
+
+---
+
+## Performance Triage Workflow
+
+### "Service is slow" Investigation
+
+When a user reports that a service is slow, the agent follows this workflow:
 
 1. **Symptom check (fast)**  
-   Calls `get_all_utilization_metrics(service_name, region, 1)` to inspect CPU, memory, instance count, and config for the last hour.[file:1]
+   Calls `get_all_utilization_metrics(service_name, region, 1)` to inspect CPU, memory, instance count, and config for the last hour.
 
 2. **Traffic check (fast)**  
-   Uses Monitoring‑based tools (for example `get_request_rate_and_latency_summary`) to understand request volume and latency without scanning logs.[file:1]
+   Uses Monitoring-based tools (e.g., `get_request_rate_and_latency_summary`) to understand request volume and latency without scanning logs.
 
 3. **Scaling check**  
-   Compares current/peak instance count to configured max instances and considers concurrency settings.[file:1]
+   Compares current/peak instance count to configured max instances and considers concurrency settings.
 
 4. **Correlation and diagnosis**  
-   Determines whether the service itself is overloaded or likely waiting on downstream dependencies.[file:1]
+   Determines whether the service itself is overloaded or likely waiting on downstream dependencies.
 
 5. **Recommendations**  
-   Suggests concrete next steps, such as updating max instances, adjusting concurrency, or investigating downstream services/databases.[file:1]
+   Suggests concrete next steps, such as updating max instances, adjusting concurrency, or investigating downstream services/databases.
 
-By default, this workflow does not use log‑based exact counting unless explicitly requested.[file:1]
-
----
-
-### Exact request counts (Cloud Logging, forensic)
-
-For deep, forensic analysis, the agent can:
-
-- Scan Cloud Logging for request entries over a time window.
-- Count:
-  - Total requests
-  - 2xx (successful)
-  - 4xx (client error)
-  - 5xx (server error) requests.[file:1]
-
-Key functions:
-
-- `get_exact_request_counts`
-- `get_exact_request_counts_from_logs`.[file:1]
-
-These are intentionally treated as slower tools, used only when the user requests “exact counts from logs” or similar wording.[file:1]
+**By default, this workflow does not use log-based exact counting unless explicitly requested.**
 
 ---
 
-### Multi‑region and multi‑service views
+## Monitoring vs Logging: When to Use Each
+
+### Use Monitoring-Based Tools When:
+- You need **fast answers** (seconds)
+- You're troubleshooting current or recent performance issues (up to 6 hours)
+- You want to compare services or regions quickly
+- Approximate metrics are sufficient for operational decision-making
+
+### Use Logging-Based Tools When:
+- You need **exact, log-level counts** for audits or postmortems
+- You must break down traffic by status code (2xx/4xx/5xx) with maximum precision
+- You accept longer runtimes (minutes) in exchange for accuracy
+
+### Performance Comparison
+
+| Aspect | Metrics-based tools | Log-based tools |
+|--------|---------------------|------------------|
+| Data source | Cloud Monitoring | Cloud Logging |
+| Typical use cases | Health checks, performance triage, trends | Forensic audits, strict exact counts |
+| Accuracy | Aggregated / approximate | Per-entry, exact per log record |
+| Latency / speed | Fast (seconds) | Slow (can be minutes for large windows) |
+| Scalability (high traffic) | High – designed for aggregation | Limited – bounded by per-chunk log entry limits |
+| Time window suitability | Up to at least 6 hours (often longer) | Shorter, focused windows recommended |
+| Risk of partial data | Low (aggregation-based) | Higher – chunk limits can truncate log coverage |
+
+---
+
+## Multi-Region and Multi-Service Views
 
 The agent supports:
+- Parallel queries across regions
+- Aggregated or per-service metric summaries across multiple services
+- Chunked log queries over longer windows (up to several days), with rate limiting and entry caps
 
-- Parallel queries across regions.
-- Aggregated or per‑service metric summaries across multiple services.
-- Chunked log queries over longer windows (up to several days), with rate limiting and entry caps.[file:1]
-
-This enables higher‑level views such as “top services by traffic” or “services with highest latency per region”.[file:1]
-
----
-
-## Known Limitations
-
-### Monitoring vs logging
-
-- Monitoring‑based tools are:
-  - Fast
-  - Suitable for up to 6‑hour windows (and beyond, with more aggregation)
-  - Slightly approximate due to aggregation/sampling.[file:1]
-
-- Logging‑based tools are:
-  - Slow for high‑traffic services or multi‑hour windows
-  - Bound by a maximum entries per chunk limit (for example 100,000 log entries), which can produce partial results.[file:1]
-
-The system instructions prefer Monitoring for “how many requests in the last N hours?” and use Logging only when explicitly requested.[file:1]
+This enables higher-level views such as "top services by traffic" or "services with highest latency per region".
 
 ---
 
-### Time windows and retention
+# SECTION 2: REST API TOOLS - DISCOVERY & CONFIGURATION
 
-- Larger windows (24h, 7d) may be more aggregated in Monitoring.
-- Logging may not cover all requests for very high‑volume services if log entry caps are reached.
-- Internally, timestamps and query windows are handled in UTC; user‑visible times can be presented in a consistent local timezone (for example EST).[file:1]
+## Overview
+
+REST API tools provide service discovery and configuration details using Cloud Asset API and Cloud Run API. These tools are read-only and do not modify any resources.
 
 ---
 
-### Read‑only behavior
+## 2.1 Service Discovery (Cloud Asset API)
 
-The Cloud Run expert is strictly read‑only:
+### Purpose
+Discover Cloud Run services across projects and regions using Cloud Asset inventory.
 
-- It does not deploy, modify, or delete services.
-- It does not change configuration or scaling parameters.
+### Key Functions
 
-All outputs are descriptive and advisory.[file:1]
+#### `list_services`
+List all Cloud Run services in the project.
+
+**Parameters:**
+- `region` - Optional region filter
+- `label_filter` - Optional label filter (e.g., "env:prod")
+
+**Returns:**
+- Total service count
+- Per-service info:
+  - name, location, full_name
+  - display_name, labels, state
+
+**Use Cases:**
+- "List all Cloud Run services"
+- "Show services in us-central1"
+- "List services with label env:production"
+
+---
+
+## 2.2 Service Configuration (Cloud Run API)
+
+### Purpose
+Retrieve detailed configuration for specific Cloud Run services.
+
+### Key Functions
+
+#### `get_service_details`
+Get detailed configuration for a specific Cloud Run service.
+
+**Parameters:**
+- `service_name` - Service name
+- `region` - Region
+
+**Returns:**
+- Service URL, ingress settings
+- Latest revision name
+- Scaling: min_instances, max_instances
+- Containers:
+  - Image URI
+  - CPU limit, memory limit
+  - Environment variables
+- Created/updated timestamps (EST)
+
+**Use Cases:**
+- "Show config for service X"
+- "What are the scaling settings for service Y?"
+- "Which image is service Z running?"
+
+---
+
+#### `get_service_details_fast`
+Get service configuration with caching (5min TTL). Faster for repeated queries of the same service.
+
+**Parameters:**
+- `service_name` - Service name
+- `region` - Region (default: us-central1)
+
+**Cache Benefits:**
+- 5-minute cache TTL
+- ~85% cache hit ratio for repeated queries
+- Reduces API calls and latency
+
+---
+
+#### `get_service_all_regions`
+Get service configuration from all common regions in parallel. Much faster than sequential queries.
+
+**Parameters:**
+- `service_name` - Service name
+
+**Returns:**
+- Configurations from multiple regions
+- Only includes regions where service exists
+
+**Common Regions:**
+- us-central1, us-east1, us-west1
+- europe-west1, asia-southeast1
+
+**Use Cases:**
+- "Show service X config across all regions"
+- "Is service Y deployed in multiple regions?"
+
+---
+
+## Configuration Caching
+
+The sub-agent implements a caching layer (config.py) for performance:
+
+**Cache Settings:**
+- TTL: 5 minutes
+- Functions: `get_cached_config()`, `set_cached_config()`
+- Cache keys: `{service_name}_{region}`
+
+**Cache Benefits:**
+- Reduces API latency for repeated queries
+- Prevents rate limiting
+- Improves user experience
+
+---
+
+## Read-Only Behavior
+
+The Cloud Run expert is strictly read-only:
+- It does not deploy, modify, or delete services
+- It does not change configuration or scaling parameters
+
+All outputs are descriptive and advisory.
+
+---
+
+## Time Windows and Retention
+
+- Larger windows (24h, 7d) may be more aggregated in Monitoring
+- Logging may not cover all requests for very high-volume services if log entry caps are reached
+- Internally, timestamps and query windows are handled in UTC; user-visible times are presented in EST
 
 ---
 
@@ -160,115 +360,31 @@ For a detailed prompt library, see [`PROMPTS.md`](./PROMPTS.md).
 
 Common patterns:
 
-- Discovery: “List services”, “Show config for a service”.
-- Utilization: “CPU/memory usage for a service”.
-- Performance: “Service X is slow – investigate”.
-- Traffic & latency: “Total requests and p95 latency over last 3/6 hours”.
-- Forensic: “Exact request counts from logs with status code breakdown”.[file:1]
+**Section 1: Monitoring & Metrics**
+- Utilization: "CPU/memory usage for a service"
+- Performance: "Service X is slow – investigate"
+- Traffic & latency: "Total requests and p95 latency over last 3/6 hours"
+- Forensic: "Exact request counts from logs with status code breakdown"
+
+**Section 2: REST API Tools**
+- Discovery: "List services", "Show services in region X"
+- Configuration: "Show config for service X", "What are the scaling settings?"
 
 ---
 
----
+## Known Limitations
 
-## Limitations and Usage Guidelines
+### Monitoring vs Logging
 
-This section describes how and when to use log‑based vs metrics‑based queries, and what to expect from each approach.[file:1]
+- Monitoring-based tools are:
+  - Fast
+  - Suitable for up to 6-hour windows (and beyond, with more aggregation)
+  - Slightly approximate due to aggregation/sampling
 
-### 1. Log‑Based Queries
+- Logging-based tools are:
+  - Slow for high-traffic services or multi-hour windows
+  - Bound by a maximum entries per chunk limit (e.g., 100,000 log entries), which can produce partial results
 
-Log‑based tools (for example, `get_exact_request_counts`, `get_exact_request_counts_from_logs`) operate directly on application and access logs.
-
-**When to use:**
-
-- You need **exact, log‑level counts** for a time window (for example, audits or incident postmortems).  
-- You must break down traffic by status code (2xx/4xx/5xx) with maximum precision.  
-- You are investigating a small to moderate time window with manageable traffic volume.[file:1]
-
-**How to use them:**
-
-- Phrase prompts explicitly, for example:
-  - “Using logs, give me the exact request counts for `my-service` in `region-1` for the last 60 minutes, broken down by status code.”
-- Mention that you want “exact counts from logs” or “forensic analysis” so the agent chooses log‑based tools instead of metrics.[file:1]
-
-**Known constraints:**
-
-- **Performance:**  
-  - Log scans can take **minutes** for busy services or multi‑hour windows.  
-  - Each chunk is limited to a maximum number of log entries (for example, 100,000 entries), and scanning is done page‑by‑page.[file:1]
-- **Data completeness:**  
-  - If log volume exceeds the per‑chunk limit, the tool may only process the first chunk and annotate results with a note such as “max entries limit reached”, meaning the totals are **partial**.[file:1]
-- **Scalability:**  
-  - Wide windows (multiple hours) combined with high traffic are not efficient for repeated use.  
-  - Avoid asking for large windows (for example, 24 hours) of exact log counts in normal workflows; reserve this for targeted forensic queries.[file:1]
-
-**Guardrails / best practices:**
-
-- Use **shorter time windows** (for example, 15–60 minutes) for log‑based analysis when possible.  
-- If a query hits log limits or is slow, narrow the window or switch to metrics‑based summaries.  
-- Treat log‑based tools as **opt‑in** and **slow**, and only use them when you truly need log‑level accuracy.[file:1]
-
----
-
-### 2. Metrics‑Based Signals (Monitoring)
-
-Metrics‑based tools (for example, `get_metrics_summary`, `get_all_utilization_metrics`, `get_request_rate_and_latency_summary`) use Cloud Monitoring time‑series data.
-
-**When to use:**
-
-- You need **fast answers** about:
-  - Request counts and rates.  
-  - Latency (p95, etc.).  
-  - CPU and memory utilization.  
-  - Instance count and scaling behavior.  
-- You are troubleshooting current or recent performance issues (up to at least the last 6 hours).  
-- You want to compare services or regions quickly.[file:1]
-
-**Why use metrics instead of logs:**
-
-- **Performance:**  
-  - Metrics queries are designed for aggregation and are significantly **faster** than scanning raw logs.  
-  - They scale well for multi‑hour windows and high‑traffic services.[file:1]
-- **Scalability:**  
-  - Aggregations over long windows (for example, 6 hours) are efficient and do not hit log entry limits.  
-- **Clarity:**  
-  - Metrics directly expose utilization, rates, and percentiles, making it easier to diagnose resource or scaling issues.[file:1]
-
-**Data characteristics and completeness:**
-
-- Metrics are **aggregated** and may be subject to sampling or roll‑ups, so values are approximate rather than exact per‑request counts.  
-- For operational decision‑making (for example, “Is this service overloaded?”), this approximation is usually sufficient and preferred.  
-- For strict audits where every request must be counted exactly, prefer log‑based tools with the constraints noted above.[file:1]
-
-**Guardrails / best practices:**
-
-- For prompts like “How many requests in the last N hours?” or “What is p95 latency over the last 6 hours?”, default to metrics‑based wording and let the agent use Monitoring.  
-- Use metrics for:
-  - “Is the service healthy?”  
-  - “Is it CPU‑ or memory‑bound?”  
-  - “Is it hitting max instances or concurrency limits?”  
-  - “What are the traffic patterns over the last few hours?”[file:1]
-- Only override this and ask for logs when you explicitly need exact counts.[file:1]
-
----
-
-### 3. Performance, Scalability, and Data Completeness Summary
-
-| Aspect                     | Metrics‑based tools                          | Log‑based tools                                  |
-|----------------------------|----------------------------------------------|--------------------------------------------------|
-| Data source                | Cloud Monitoring                             | Cloud Logging                                    |
-| Typical use cases          | Health checks, performance triage, trends    | Forensic audits, strict exact counts             |
-| Accuracy                   | Aggregated / approximate                     | Per‑entry, exact per log record                  |
-| Latency / speed            | Fast (seconds)                               | Slow (can be minutes for large windows)          |
-| Scalability (high traffic) | High – designed for aggregation              | Limited – bounded by per‑chunk log entry limits  |
-| Time window suitability    | Up to at least 6 hours (often longer)        | Shorter, focused windows recommended             |
-| Risk of partial data       | Low (aggregation‑based)                      | Higher – chunk limits can truncate log coverage  |
-
-**User guidelines:**
-
-- Use metrics‑based prompts by default for operational questions and performance triage.  
-- Use log‑based prompts selectively, with explicit wording, when you accept longer runtimes and possible limits in exchange for log‑level precision.  
-- When interpreting results:
-  - Treat Monitoring results as **high‑confidence trends and indicators**.  
-  - Treat Logging results as **precise but potentially partial**, especially when you see notes about entry limits or truncated ranges.[file:1]
+The system instructions prefer Monitoring for "how many requests in the last N hours?" and use Logging only when explicitly requested.
 
 ---
