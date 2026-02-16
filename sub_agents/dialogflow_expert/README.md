@@ -12,8 +12,8 @@ A production-grade Dialogflow CX specialist agent for operational analytics, con
 
 The Dialogflow Expert provides comprehensive monitoring and troubleshooting capabilities for Dialogflow CX agents through:
 
-- **Real-time Analytics**: Session metrics, backend performance, failure analysis
 - **Configuration Auditing**: Agent discovery, intent inspection, webhook mapping
+- **Real-time Analytics**: Session metrics, backend performance, failure analysis
 - **Conversation Intelligence**: Turn-by-turn transcripts, NLU quality analysis, flow traversal
 - **Session Forensics**: Deep-dive investigation with BigQuery-backed analytics
 
@@ -23,15 +23,15 @@ The Dialogflow Expert provides comprehensive monitoring and troubleshooting capa
 
 This sub-agent is organized into **two main sections**:
 
-1. **Section 1: Monitoring & Analytics Tools** (26 tools) - All BigQuery-based metrics, session analytics, and conversation intelligence
-2. **Section 2: REST API Tools** (6 tools) - All Dialogflow CX API-based discovery and configuration
+1. **Section 1: REST API Tools** (6 tools) - All Dialogflow CX API-based discovery and configuration
+2. **Section 2: BigQuery Analytics Tools & Supporting Content** (26 tools) - All BigQuery-based metrics, session analytics, conversation intelligence, plus workflows and best practices
 
 ### Component Structure
 
 ```
 sub_agents/dialogflow_expert/
 ├── agent.py           # Agent definition with system instructions
-├── tools.py           # 32 total tools (26 monitoring + 6 REST API)
+├── tools.py           # 32 total tools (6 REST API + 26 BigQuery)
 ├── queries.py         # BigQuery SQL templates
 ├── config.py          # Caching layer (5min TTL)
 └── README.md          # This file
@@ -41,21 +41,210 @@ sub_agents/dialogflow_expert/
 
 | Section | Data Source | Tables | Purpose |
 |---------|-------------|--------|----------|
-| Section 1 | BigQuery | `alerting_monitoring.dialogflow_metrics` | Real-time operational analytics |
-| Section 1 | BigQuery | `dfcx_analytics.dfcx_session_metadata` | CCAIP integration, caller info, outcomes |
-| Section 1 | BigQuery | `dfcx_analytics.dfcx_transcript` | Conversation replay, NLU analysis |
-| Section 2 | Dialogflow CX API | N/A | Agent, intent, webhook configuration |
+| Section 1 | Dialogflow CX API | N/A | Agent, intent, webhook configuration |
+| Section 2 | BigQuery | `alerting_monitoring.dialogflow_metrics` | Real-time operational analytics |
+| Section 2 | BigQuery | `dfcx_analytics.dfcx_session_metadata` | CCAIP integration, caller info, outcomes |
+| Section 2 | BigQuery | `dfcx_analytics.dfcx_transcript` | Conversation replay, NLU analysis |
 
 ---
 
-# SECTION 1: MONITORING & ANALYTICS TOOLS (26 TOOLS)
+# SECTION 1: REST API TOOLS - DISCOVERY & CONFIGURATION (6 TOOLS)
 
 ## Overview
 
-All monitoring and analytics tools query BigQuery datasets for:
+All REST API tools use Dialogflow CX API for:
+- Agent discovery and configuration
+- Intent listing and inspection
+- Webhook configuration
+
+**Data Sources:** Dialogflow CX API only  
+**Total Tools:** 6  
+**Response Time:** Sub-second to 2 seconds (with caching)
+
+---
+
+## 1.1 Agent Discovery & Configuration - 3 Tools
+
+### Purpose
+Discover and inspect Dialogflow CX agents across locations.
+
+### Agent Discovery
+
+#### `list_dialogflow_agents(location)`
+List Dialogflow agents in a specific location.
+
+**Parameters:**
+- `location` - Optional location (default: project default)
+  - Supported: us, global, us-central1, us-east1, europe-west1, asia-southeast1
+
+**Returns:**
+- Agent count
+- Agent names, IDs, resource names
+- Default languages
+- Time zones
+
+**Use Cases:**
+- "List all Dialogflow agents"
+- "Show me agents in the us region"
+- "Which Dialogflow agents are in us-central1?"
+
+**Error Handling:**
+- `PERMISSION_DENIED` - Missing Dialogflow API Reader role
+- `API has not been used` - Dialogflow CX API not enabled
+- `NOT_FOUND` / `UNIMPLEMENTED` - Invalid location
+
+---
+
+### Agent Configuration
+
+#### `get_agent_configuration(agent_id, location)`
+Get detailed configuration for a Dialogflow agent (no cache).
+
+**Parameters:**
+- `agent_id` - Agent display name or full resource name
+- `location` - Optional location (default: project default)
+
+**Returns:**
+- Display name, resource name, agent ID
+- Default language, supported languages
+- Time zone
+- Description, avatar URI
+- Stackdriver logging enabled
+- Spell correction enabled
+- Query time (EST)
+
+**Use Cases:**
+- "Show me configuration for XA Agent"
+- "Get details for DR-agent"
+- "What is the time zone for RobTest agent?"
+
+---
+
+#### `get_agent_configuration_cached(agent_id, location)`
+Get agent configuration with caching (5min TTL). Faster for repeated queries.
+
+**Parameters:**
+- `agent_id` - Agent display name or full resource name
+- `location` - Optional location (default: project default)
+
+**Cache Benefits:**
+- 5-minute cache TTL
+- ~85% cache hit ratio for repeated queries
+- Reduces API calls and latency
+
+**Use Cases:**
+- Same as `get_agent_configuration` but faster for repeated queries
+- Automatically used by agent when appropriate
+
+---
+
+## 1.2 Intent Management - 2 Tools
+
+### Purpose
+List and inspect intents for Dialogflow CX agents.
+
+#### `list_intents(agent_id, location)`
+List all intents for an agent (cached 5min).
+
+**Parameters:**
+- `agent_id` - Agent display name or full resource name
+- `location` - Optional location (default: project default)
+
+**Returns:**
+- Intent count
+- Intent IDs, display names, resource names
+- Training phrase counts
+- Parameter lists
+- Query time (EST)
+
+**Use Cases:**
+- "List all intents for XA Agent"
+- "Show me intents in DR-agent"
+- "How many intents does RobTest have?"
+
+---
+
+#### `get_intent_details(agent_id, intent_id, location)`
+Get detailed information for a single intent including training phrases.
+
+**Parameters:**
+- `agent_id` - Agent display name or full resource name
+- `intent_id` - Intent display name or ID
+- `location` - Optional location (default: project default)
+
+**Returns:**
+- Intent ID, display name, resource name
+- Full list of training phrases
+- Training phrase count
+- Parameter definitions (entity types, is_list, redact)
+- Parameter count
+- Labels
+- Query time (EST)
+
+**Use Cases:**
+- "Show me training phrases for the 'order-status' intent"
+- "Get details for 'troubleshoot.internet' intent in XA Agent"
+- "What parameters does the 'billing' intent have?"
+
+---
+
+## 1.3 Webhook Configuration - 1 Tool
+
+### Purpose
+List and inspect webhook configurations for Dialogflow CX agents.
+
+#### `list_webhooks(agent_id, location)`
+List configured webhooks for an agent (cached 5min).
+
+**Parameters:**
+- `agent_id` - Agent display name or full resource name
+- `location` - Optional location (default: project default)
+
+**Returns:**
+- Webhook count
+- Webhook IDs, display names, resource names
+- URI (Generic Web Service)
+- Timeout settings (seconds)
+- Request headers (if configured)
+- Service Directory config (if applicable)
+- Disabled status
+- Query time (EST)
+- Note: "For webhook performance metrics, if webhook is Cloud Run-based, use the Cloud Run specialist."
+
+**Use Cases:**
+- "What webhooks does XA Agent have?"
+- "Show webhook configuration for DR-agent"
+- "Which webhooks are configured for RobTest?"
+
+**Delegation:**
+- For webhook **infrastructure metrics** (CPU, memory, instance count, latency p95, error rates), delegate to Cloud Run specialist
+- This tool provides **configuration only** (URI, timeout, headers)
+
+---
+
+## Section 1 Summary
+
+**Total Tools: 6**
+- 3 tools: Agent discovery & configuration
+- 2 tools: Intent management
+- 1 tool: Webhook configuration
+
+**Data Source:** Dialogflow CX API only  
+**Use Cases:** Service discovery, configuration audits, intent inspection, webhook mapping  
+**Performance:** Fast (sub-second to 2 seconds with caching)
+
+---
+
+# SECTION 2: BIGQUERY ANALYTICS TOOLS & SUPPORTING CONTENT (26 TOOLS)
+
+## Overview
+
+Section 2 contains all BigQuery-based analytics tools for:
 - Operational metrics (session counts, response times, failures)
 - Session metadata (CCAIP data, outcomes, caller information)
 - Conversation transcripts (turn-by-turn, NLU quality, flow traversal)
+
+Plus workflows, best practices, and troubleshooting guidelines.
 
 **Data Sources:** BigQuery only  
 **Location:** us-central1 (hardcoded)  
@@ -63,7 +252,7 @@ All monitoring and analytics tools query BigQuery datasets for:
 
 ---
 
-## 1.1 Session Metrics (alerting_monitoring.dialogflow_metrics) - 10 Tools
+## 2.1 Session Metrics (alerting_monitoring.dialogflow_metrics) - 10 Tools
 
 ### Purpose
 Real-time operational metrics from Cloud Monitoring, aggregated into BigQuery for historical analysis.
@@ -253,7 +442,7 @@ Backend failures grouped by normalized backend URI.
 
 ---
 
-## 1.2 Session Metadata Analytics (dfcx_analytics.dfcx_session_metadata) - 6 Tools
+## 2.2 Session Metadata Analytics (dfcx_analytics.dfcx_session_metadata) - 6 Tools
 
 ### Purpose
 Session-level summaries with CCAIP integration, caller information, and heuristic outcomes.
@@ -389,7 +578,7 @@ Get top 20 intents by session count.
 
 ---
 
-## 1.3 Conversation Transcript Analytics (dfcx_analytics.dfcx_transcript) - 10 Tools 🆕
+## 2.3 Conversation Transcript Analytics (dfcx_analytics.dfcx_transcript) - 10 Tools 🆕
 
 ### Purpose
 Turn-by-turn conversation analysis for NLU quality, flow traversal, and session forensics.
@@ -623,7 +812,7 @@ Top agent responses by page.
 
 ---
 
-## Section 1 Summary
+## Section 2 Summary
 
 **Total Tools: 26**
 - 10 tools: Session metrics (dialogflow_metrics table)
@@ -636,213 +825,25 @@ Top agent responses by page.
 
 ---
 
-# SECTION 2: REST API TOOLS - DISCOVERY & CONFIGURATION (6 TOOLS)
-
-## Overview
-
-All REST API tools use Dialogflow CX API for:
-- Agent discovery and configuration
-- Intent listing and inspection
-- Webhook configuration
-
-**Data Sources:** Dialogflow CX API only  
-**Total Tools:** 6
-
----
-
-## 2.1 Agent Discovery & Configuration - 3 Tools
-
-### Purpose
-Discover and inspect Dialogflow CX agents across locations.
-
-### Agent Discovery
-
-#### `list_dialogflow_agents(location)`
-List Dialogflow agents in a specific location.
-
-**Parameters:**
-- `location` - Optional location (default: project default)
-  - Supported: us, global, us-central1, us-east1, europe-west1, asia-southeast1
-
-**Returns:**
-- Agent count
-- Agent names, IDs, resource names
-- Default languages
-- Time zones
-
-**Use Cases:**
-- "List all Dialogflow agents"
-- "Show me agents in the us region"
-- "Which Dialogflow agents are in us-central1?"
-
-**Error Handling:**
-- `PERMISSION_DENIED` - Missing Dialogflow API Reader role
-- `API has not been used` - Dialogflow CX API not enabled
-- `NOT_FOUND` / `UNIMPLEMENTED` - Invalid location
-
----
-
-### Agent Configuration
-
-#### `get_agent_configuration(agent_id, location)`
-Get detailed configuration for a Dialogflow agent (no cache).
-
-**Parameters:**
-- `agent_id` - Agent display name or full resource name
-- `location` - Optional location (default: project default)
-
-**Returns:**
-- Display name, resource name, agent ID
-- Default language, supported languages
-- Time zone
-- Description, avatar URI
-- Stackdriver logging enabled
-- Spell correction enabled
-- Query time (EST)
-
-**Use Cases:**
-- "Show me configuration for XA Agent"
-- "Get details for DR-agent"
-- "What is the time zone for RobTest agent?"
-
----
-
-#### `get_agent_configuration_cached(agent_id, location)`
-Get agent configuration with caching (5min TTL). Faster for repeated queries.
-
-**Parameters:**
-- `agent_id` - Agent display name or full resource name
-- `location` - Optional location (default: project default)
-
-**Cache Benefits:**
-- 5-minute cache TTL
-- ~85% cache hit ratio for repeated queries
-- Reduces API calls and latency
-
-**Use Cases:**
-- Same as `get_agent_configuration` but faster for repeated queries
-- Automatically used by agent when appropriate
-
----
-
-## 2.2 Intent Management - 2 Tools
-
-### Purpose
-List and inspect intents for Dialogflow CX agents.
-
-#### `list_intents(agent_id, location)`
-List all intents for an agent (cached 5min).
-
-**Parameters:**
-- `agent_id` - Agent display name or full resource name
-- `location` - Optional location (default: project default)
-
-**Returns:**
-- Intent count
-- Intent IDs, display names, resource names
-- Training phrase counts
-- Parameter lists
-- Query time (EST)
-
-**Use Cases:**
-- "List all intents for XA Agent"
-- "Show me intents in DR-agent"
-- "How many intents does RobTest have?"
-
----
-
-#### `get_intent_details(agent_id, intent_id, location)`
-Get detailed information for a single intent including training phrases.
-
-**Parameters:**
-- `agent_id` - Agent display name or full resource name
-- `intent_id` - Intent display name or ID
-- `location` - Optional location (default: project default)
-
-**Returns:**
-- Intent ID, display name, resource name
-- Full list of training phrases
-- Training phrase count
-- Parameter definitions (entity types, is_list, redact)
-- Parameter count
-- Labels
-- Query time (EST)
-
-**Use Cases:**
-- "Show me training phrases for the 'order-status' intent"
-- "Get details for 'troubleshoot.internet' intent in XA Agent"
-- "What parameters does the 'billing' intent have?"
-
----
-
-## 2.3 Webhook Configuration - 1 Tool
-
-### Purpose
-List and inspect webhook configurations for Dialogflow CX agents.
-
-#### `list_webhooks(agent_id, location)`
-List configured webhooks for an agent (cached 5min).
-
-**Parameters:**
-- `agent_id` - Agent display name or full resource name
-- `location` - Optional location (default: project default)
-
-**Returns:**
-- Webhook count
-- Webhook IDs, display names, resource names
-- URI (Generic Web Service)
-- Timeout settings (seconds)
-- Request headers (if configured)
-- Service Directory config (if applicable)
-- Disabled status
-- Query time (EST)
-- Note: "For webhook performance metrics, if webhook is Cloud Run-based, use the Cloud Run specialist."
-
-**Use Cases:**
-- "What webhooks does XA Agent have?"
-- "Show webhook configuration for DR-agent"
-- "Which webhooks are configured for RobTest?"
-
-**Delegation:**
-- For webhook **infrastructure metrics** (CPU, memory, instance count, latency p95, error rates), delegate to Cloud Run specialist
-- This tool provides **configuration only** (URI, timeout, headers)
-
----
-
-## Section 2 Summary
-
-**Total Tools: 6**
-- 3 tools: Agent discovery & configuration
-- 2 tools: Intent management
-- 1 tool: Webhook configuration
-
-**Data Source:** Dialogflow CX API only  
-**Use Cases:** Service discovery, configuration audits, intent inspection, webhook mapping
-
----
-
-# ADDITIONAL FEATURES
-
-## 🚀 Performance Features
+## 2.4 Performance Features
 
 ### Caching Layer (config.py)
-- **5-minute TTL** for agent configs, intents, webhooks
+- **5-minute TTL** for agent configs, intents, webhooks (Section 1 tools only)
 - **Cache hit ratio**: ~85% for repeated queries
 - **Functions**: `get_cached_config()`, `set_cached_config()`, `clear_all_caches()`
-- **Applies to:** Section 2 tools only (REST API)
 
 ### Rate Limiting
 - **100ms** minimum interval between API requests
 - **Exponential backoff** on 429 errors (initial 1s, max 60s)
 - **Max retries**: 5 attempts with automatic retry
-- **Applies to:** Both Section 1 (BigQuery) and Section 2 (API)
+- **Applies to:** Both Section 1 (API) and Section 2 (BigQuery)
 
 ### BigQuery Optimizations
 - **Parameterized queries** (prevent SQL injection)
 - **60-second timeout** (prevents agent hangs)
 - **Location-aware clients**: Single us-central1 client for both datasets
 - **JSON-safe conversion**: Auto-converts datetime/date objects to ISO strings
-- **Applies to:** Section 1 tools only (Monitoring/Analytics)
+- **Applies to:** Section 2 tools only (BigQuery Analytics)
 
 ### Time Window Limits
 - **Session Metadata**: Max 168 hours (7 days)
@@ -851,7 +852,7 @@ List configured webhooks for an agent (cached 5min).
 
 ---
 
-## 🔌 Integration with Master Agent
+## 2.5 Integration with Master Agent
 
 ### Delegation from Master Agent
 
@@ -867,7 +868,7 @@ For webhook infrastructure metrics (CPU, memory, instance count), delegate to Cl
 
 ---
 
-## 🛡️ Error Handling
+## 2.6 Error Handling
 
 ### Common Errors
 
@@ -886,7 +887,7 @@ For webhook infrastructure metrics (CPU, memory, instance count), delegate to Cl
 
 ---
 
-## 📝 Environment Variables
+## 2.7 Environment Variables
 
 Required in `env/.env.dev`:
 
@@ -905,35 +906,35 @@ LOCATION=us-east4
 
 ---
 
-## 🧪 Testing & Validation
+## 2.8 Testing & Validation
 
 ### Test Scenarios Covered
 
-**Section 1: Monitoring & Analytics**
+**Section 1: REST API Tools**
+1. Agent Discovery: List agents in us, global, us-central1
+2. Intent Inspection: List intents, get training phrases
+3. Webhook Configuration: List webhooks with timeout/URI settings
+
+**Section 2: BigQuery Analytics**
 1. Session Metrics: Unique sessions, response times, status success/failure
 2. Session Metadata: Session search, details, analytics by channel/outcome
 3. Transcript Analytics: Confidence distribution, fallback analysis, session replay
 4. Performance: 100-session queries, 6-hour time windows
 5. Edge Cases: Non-existent sessions, empty results
 
-**Section 2: REST API Tools**
-1. Agent Discovery: List agents in us, global, us-central1
-2. Intent Inspection: List intents, get training phrases
-3. Webhook Configuration: List webhooks with timeout/URI settings
-
 ### Expected Response Times
-- **Cached queries (Section 2)**: <100ms
-- **Fresh config (Section 2)**: 500-1500ms
-- **BigQuery 1h window (Section 1)**: 2-5s
-- **BigQuery 6h window (Section 1)**: 5-15s
-- **Session replay (Section 1)**: 3-8s (50 turns)
+- **Cached queries (Section 1)**: <100ms
+- **Fresh config (Section 1)**: 500-1500ms
+- **BigQuery 1h window (Section 2)**: 2-5s
+- **BigQuery 6h window (Section 2)**: 5-15s
+- **Session replay (Section 2)**: 3-8s (50 turns)
 
 ---
 
-## 🔄 Version History
+## 2.9 Version History
 
 ### v2.0.0 (Feb 16, 2026) - Current
-- ✅ Reorganized README into Section 1 (All Monitoring/Analytics - 26 tools) and Section 2 (All REST APIs - 6 tools)
+- ✅ Reorganized README into Section 1 (REST API - 6 tools) and Section 2 (BigQuery Analytics - 26 tools)
 - ✅ Added 10 conversation transcript analytics tools
 - ✅ Added 6 session metadata tools
 - ✅ Integrated master_agent utils (rate limiter, retry, response manager)
@@ -950,11 +951,11 @@ LOCATION=us-east4
 
 ---
 
-## 📚 Dependencies
+## 2.10 Dependencies
 
 ```python
-google-cloud-dialogflowcx>=1.27.0  # Section 2 (REST API)
-google-cloud-bigquery>=3.11.0      # Section 1 (Monitoring/Analytics)
+google-cloud-dialogflowcx>=1.27.0  # Section 1 (REST API)
+google-cloud-bigquery>=3.11.0      # Section 2 (BigQuery Analytics)
 google-cloud-monitoring>=2.15.0    # Future use
 google-auth>=2.23.0               # Both sections
 python-dotenv>=1.0.0              # Configuration
@@ -962,31 +963,31 @@ python-dotenv>=1.0.0              # Configuration
 
 ---
 
-## 🤝 Contributing
+## 2.11 Contributing
 
 ### Adding New Tools
 
-**For Section 1 (Monitoring/Analytics):**
+**For Section 1 (REST API):**
+1. **Add method** to `DialogflowTools` class in `tools.py` (no SQL needed)
+2. **Add ADK wrapper** at bottom of `tools.py`
+3. **Register tool** in `create_dialogflow_agent()` in `agent.py`
+4. **Update system instructions** with usage pattern
+5. **Update README Section 1** with tool documentation
+6. **Add caching** if appropriate (see `config.py`)
+7. **Test** with sample queries
+
+**For Section 2 (BigQuery Analytics):**
 1. **Define SQL query** in `queries.py`
 2. **Add method** to `DialogflowTools` class in `tools.py`
 3. **Add ADK wrapper** at bottom of `tools.py`
 4. **Register tool** in `create_dialogflow_agent()` in `agent.py`
 5. **Update system instructions** with usage pattern
-6. **Update README Section 1** with tool documentation
-7. **Test** with sample queries
-
-**For Section 2 (REST API):**
-1. **Add method** to `DialogflowTools` class in `tools.py` (no SQL needed)
-2. **Add ADK wrapper** at bottom of `tools.py`
-3. **Register tool** in `create_dialogflow_agent()` in `agent.py`
-4. **Update system instructions** with usage pattern
-5. **Update README Section 2** with tool documentation
-6. **Add caching** if appropriate (see `config.py`)
+6. **Update README Section 2** with tool documentation
 7. **Test** with sample queries
 
 ---
 
-## 📞 Support
+## 2.12 Support
 
 For issues or questions:
 - Check error messages in response JSON (`error`, `note` fields)
