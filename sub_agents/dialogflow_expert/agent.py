@@ -27,6 +27,9 @@ You must use the provided tools rather than making up data. All tools have built
 
 ### AVAILABLE TOOLS
 
+################################################################################
+# SECTION 1: DIALOGFLOW CX CONFIGURATION TOOLS
+################################################################################
 
 **1. AGENT DISCOVERY**
 - `list_dialogflow_agents(location)` - List all agents in a specific location
@@ -56,6 +59,13 @@ You must use the provided tools rather than making up data. All tools have built
   - Returns: Webhook count, names, URIs, timeout settings
   - Note: For webhook performance metrics, delegate to Cloud Run specialist if applicable
 
+################################################################################
+# SECTION 2: DIALOGFLOW ANALYTICS & MONITORING TOOLS
+################################################################################
+
+------------------------------------------------------------------------------
+# 2.1 OPERATIONAL METRICS (dialogflow_metrics table)
+------------------------------------------------------------------------------
 
 BigQuery-based Dialogflow analytics:
 - You have tools that read from the BigQuery table
@@ -91,6 +101,9 @@ Behavior:
 - If the user asks for deeper infrastructure details about a specific backend (latency, CPU,
   error rates), delegate to the Cloud Run specialist for that service.
 
+------------------------------------------------------------------------------
+# 2.2 SESSION METADATA (dfcx_session_metadata table)
+------------------------------------------------------------------------------
 
 **5. SESSION METADATA (dfcx_session_metadata)**
 - `df_get_session_details(session_id, hours)` - Get detailed info for a specific session
@@ -107,6 +120,9 @@ Behavior:
 - `df_session_by_outcome(hours)` - Session breakdown by heuristic outcome
 - `df_session_top_intents(hours)` - Top 20 intents by session count
 
+------------------------------------------------------------------------------
+# 2.3 CONVERSATION TRANSCRIPT ANALYTICS (dfcx_transcript table)
+------------------------------------------------------------------------------
 
 **6. CONVERSATION TRANSCRIPT ANALYTICS (dfcx_transcript)** 🆕
 
@@ -114,7 +130,7 @@ Behavior:
 - `df_intent_confidence_distribution(hours)` - Intent matching confidence score distribution
   - Shows buckets: High (0.9-1.0), Medium (0.7-0.9), Low (0.5-0.7), Very Low (<0.5)
   - Use case: Identify weak NLU performance, intents needing better training
-  
+
 - `df_fallback_analysis(hours)` - Deflection and fallback tracking
   - Fallback session count, fallback rate %, sample unresolved utterances
   - Use case: Measure bot effectiveness, identify coverage gaps
@@ -123,11 +139,11 @@ Behavior:
 - `df_flow_traversal(hours)` - Flow and page traversal heatmap
   - Most visited flows/pages, unique sessions per page, average turn depth
   - Use case: Identify popular paths vs abandoned flows
-  
+
 - `df_execution_complexity(hours, min_turns)` - Sessions with high conversation turn counts
   - Default: min_turns=20 (customizable)
   - Use case: Detect looping conversations, overly complex paths
-  
+
 - `df_event_analysis(hours)` - Event triggers by page and flow
   - Event frequency, triggering contexts
   - Use case: Debug custom event logic
@@ -141,11 +157,11 @@ Behavior:
 - `df_session_replay(session_id)` - Complete turn-by-turn conversation transcript ⚡ PRIMARY
   - Returns: Full chronological transcript with user utterances, intents, entities, pages, agent responses, webhooks, session parameters, events
   - Use case: Forensic troubleshooting for escalated issues
-  
+
 - `df_conversation_summary(session_id)` - Quick conversation statistics
   - Duration, turn count, flows visited, unique intents, fallback count, channel, language
   - Use case: Fast triage before full transcript review
-  
+
 - `df_failed_sessions_export(hours, limit)` - Export sessions that ended in fallback or had issues
   - Default limit: 50 (customizable up to 100)
   - Returns: Session IDs, start/end times, flows visited, failure indicators
@@ -159,6 +175,9 @@ Behavior:
 
 ### USAGE PATTERNS
 
+################################################################################
+# SECTION 1: CONFIGURATION QUERY PATTERNS
+################################################################################
 
 **Scenario: List all agents**
 User: "List all Dialogflow agents" or "Show me agents in us region"
@@ -203,6 +222,9 @@ Actions:
 3. Present: Webhook count, names, URIs, timeout settings
 4. Note: "For webhook performance metrics (request counts, latency, errors), use Cloud Run specialist"
 
+################################################################################
+# SECTION 2: ANALYTICS & MONITORING QUERY PATTERNS
+################################################################################
 
 **Scenario: Analyze Dialogflow performance**
 User: "What is the overall status of Dialogflow calls over the last 3 hours?"
@@ -451,7 +473,7 @@ Turn 2 (00:15):
   📍 Flow: Technical Support → Page: Modem Diagnostics
   ⚙️ Webhooks: [cr-modem-health-check]
   🤖 Agent: 'Great, your modem is online. Let me run a speed test...'
-  
+
 ..."
 
 
@@ -551,17 +573,29 @@ Turn 2 (00:15):
 """
 
 
-
 def create_dialogflow_agent() -> LlmAgent:
     """Construct and return the Dialogflow expert agent."""
-    tools = [
+
+    # ==============================================================================
+    # SECTION 1: CONFIGURATION TOOLS
+    # ==============================================================================
+    config_tools = [
         dialogflow_tools.list_dialogflow_agents,
         dialogflow_tools.get_agent_details_fast,
         dialogflow_tools.get_agent_details,
         dialogflow_tools.list_intents,
         dialogflow_tools.get_intent_details,
         dialogflow_tools.list_webhooks,
-        # BigQuery metrics tools
+    ]
+
+    # ==============================================================================
+    # SECTION 2: ANALYTICS & MONITORING TOOLS
+    # ==============================================================================
+
+    # ------------------------------------------------------------------------------
+    # 2.1 Operational Metrics (dialogflow_metrics table)
+    # ------------------------------------------------------------------------------
+    operational_metrics_tools = [
         dialogflow_tools.df_unique_sessions,
         dialogflow_tools.df_overall_response_times,
         dialogflow_tools.df_overall_status_success_failure,
@@ -572,14 +606,24 @@ def create_dialogflow_agent() -> LlmAgent:
         dialogflow_tools.df_backend_modem_health_response_times,
         dialogflow_tools.df_backend_failures_by_http_code,
         dialogflow_tools.df_backend_failures_by_backend_uri,
-        #Session metadata tools
+    ]
+
+    # ------------------------------------------------------------------------------
+    # 2.2 Session Metadata (dfcx_session_metadata table)
+    # ------------------------------------------------------------------------------
+    session_metadata_tools = [
         dialogflow_tools.df_get_session_details,
         dialogflow_tools.df_search_sessions,
         dialogflow_tools.df_session_analytics,
         dialogflow_tools.df_session_by_channel,
         dialogflow_tools.df_session_by_outcome,
         dialogflow_tools.df_session_top_intents,
-        # Transcript analytics tools - NEW 🆕
+    ]
+
+    # ------------------------------------------------------------------------------
+    # 2.3 Conversation Transcript Analytics (dfcx_transcript table)
+    # ------------------------------------------------------------------------------
+    transcript_analytics_tools = [
         dialogflow_tools.df_intent_confidence_distribution,
         dialogflow_tools.df_fallback_analysis,
         dialogflow_tools.df_flow_traversal,
@@ -591,6 +635,15 @@ def create_dialogflow_agent() -> LlmAgent:
         dialogflow_tools.df_failed_sessions_export,
         dialogflow_tools.df_conversation_summary,
     ]
+
+    # Combine all tools
+    tools = (
+        config_tools + 
+        operational_metrics_tools + 
+        session_metadata_tools + 
+        transcript_analytics_tools
+    )
+
     agent = LlmAgent(
         name="dialogflow_expert",
         instruction=DIALOGFLOW_SYSTEM_INSTRUCTION,
