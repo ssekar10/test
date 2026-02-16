@@ -8,136 +8,24 @@ This file provides example prompts for end users interacting with the Cloud Run 
 
 This sub-agent is organized into **two main sections**:
 
-1. **Section 1: Monitoring & Metrics Tools** - Performance analysis, traffic patterns, resource utilization
-2. **Section 2: REST API Tools** - Service discovery, configuration retrieval
+1. **Section 1: REST API & Monitoring API Tools** - Service discovery, configuration retrieval, and real-time metrics via APIs
+2. **Section 2: Analytics & Supporting Content** - Log-based forensics, workflows, and best practices
 
 ---
 
-# SECTION 1: MONITORING & METRICS PROMPTS
+# SECTION 1: REST API & MONITORING API PROMPTS
 
 ## Overview
 
-Monitoring prompts cover performance analysis, traffic patterns, resource utilization, and forensic log analysis.
+Section 1 prompts cover API-based tools for:
+- **REST API**: Service discovery and configuration
+- **Monitoring API**: Real-time metrics (CPU, memory, requests, latency)
+
+These prompts generate fast responses (seconds) and are ideal for operational queries.
 
 ---
 
-## 1.1 Fast Metrics (Cloud Monitoring)
-
-### Resource Utilization (CPU, Memory, Instances)
-
-**Goals:** Check whether services are under- or over-utilized and how they are scaling.
-
-Example prompts:
-
-- "Show CPU and memory utilization for `my-service` in `region-1` over the last 1 hour."
-- "Is `my-service` in `region-2` CPU-bound or memory-bound over the last 4 hours?"
-- "How many instances did `my-service` use in `region-1` in the last 2 hours, and what is its configured max instances?"
-- "For all Cloud Run services in `region-1`, show average CPU utilization over the last 1 hour."
-
-**Expected behavior:**
-- Agent uses `get_resource_utilization` or `get_all_utilization_metrics`
-- Returns CPU/memory percentages (current, avg, max, min)
-- Compares instance count to configured max instances
-
----
-
-### Performance Triage – 'Service is slow'
-
-**Goals:** Quickly determine whether the problem is with the Cloud Run service itself or downstream dependencies.
-
-Example prompts:
-
-- "The `my-service` Cloud Run service in `region-1` is slow. Check if the issue is with the service or a downstream dependency."
-- "Investigate performance issues for `my-service` in `region-2` over the last hour."
-- "Is `my-service` in `region-1` hitting resource limits or scaling caps?"
-- "For `my-service` in `region-1`, correlate CPU, memory, request rate, and latency over the last 2 hours and tell me where the bottleneck is."
-
-Expected behavior:
-
-- The agent uses fast Monitoring-based metrics (`get_all_utilization_metrics`, `get_request_rate_and_latency_summary`) to inspect:
-  - CPU and memory utilization
-  - Instance count vs max instances
-  - Request volume and p95 latency
-- If the service appears healthy with low utilization and stable instances, the agent suggests investigating downstream services, databases, or APIs.
-
----
-
-### Request Counts & Latency (Fast, Monitoring-Based)
-
-**Goals:** Get total requests, request rate, and p95 latency over a time window, without expensive log scans.
-
-Example prompts:
-
-- "Total number of requests for `my-service` in `region-1` for the last 3 hours."
-- "What is the average request rate and p95 latency for `my-service` in `region-2` over the last 6 hours?"
-- "Compare request rate and p95 latency for `my-service` between `region-1` and `region-2` for the last 2 hours."
-- "Show total requests and p95 latency for all Cloud Run services in `region-1` for the last 1 hour."
-
-Expected behavior:
-
-- The agent uses Monitoring-based tools, such as `get_request_rate_and_latency_summary`, to compute:
-  - `total_requests`
-  - `avg_requests_per_minute`
-  - `max_requests_per_minute`
-  - p95 latency statistics (current, average, min, max).
-- These responses are optimized for windows up to at least 6 hours and do not use Cloud Logging.
-
----
-
-### Multi-Service & Multi-Region Views
-
-**Goals:** Understand behavior across multiple services and regions.
-
-Example prompts:
-
-- "Summarize CPU utilization and request volume for all Cloud Run services in `region-1` for the last 1 hour."
-- "Which Cloud Run services are receiving the most traffic in `region-2` over the last 6 hours?"
-- "For all services in `region-1` and `region-2`, show which ones have the highest p95 latency in the last 2 hours."
-- "Identify any services in `region-1` that are consistently near their max instances over the last 3 hours."
-
-Expected behavior:
-
-- The agent uses multi-service/multi-region Monitoring queries (`query_all_services_metrics_summary`, `get_all_utilization_metrics` in loops, etc.) and returns aggregated views, highlighting outliers and potential problem services.
-
----
-
-## 1.2 Forensic Analysis (Cloud Logging)
-
-### Exact Request Counts from Logs (Slow, Forensic)
-
-**Goals:** Obtain precise, log-level request counts, usually for audits or incident analysis.
-
-Example prompts:
-
-- "From Cloud Logging, give me the exact number of requests for `my-service` in `region-1` for the last 1 hour, broken down by status code."
-- "Using logs, get exact request counts and error counts for `my-service` in `region-2` over the last 2 hours."
-- "Perform a forensic analysis of request volume and failures for `my-service` in `region-1` for the last 30 minutes using Cloud Logging only."
-- "Use logs to compute exact 2xx, 4xx, and 5xx counts for `my-service` in `region-1` for the last 90 minutes."
-
-Expected behavior:
-
-- The agent warns that log-based analysis may be slow and may be limited by log entry caps (e.g., 100,000 entries per chunk).
-- It then uses log-based tools (`get_exact_request_counts`, `get_exact_request_counts_from_logs`) to return:
-  - Total requests
-  - Status-code breakdowns (2xx, 4xx, 5xx)
-  - Notes if results are partial due to caps.
-
-**Important:**
-- For windows >24 hours, chunking is automatic
-- Expect slower response times (minutes)
-- Reserve for cases requiring exact accuracy
-
----
-
-# SECTION 2: REST API PROMPTS - DISCOVERY & CONFIGURATION
-
-## Overview
-
-REST API prompts cover service discovery and configuration retrieval.
-
----
-
-## 2.1 Service Discovery & Configuration
+## 1.1 REST API Prompts - Service Discovery & Configuration
 
 ### List Services
 
@@ -196,60 +84,198 @@ Example prompts:
 
 ---
 
-## Best Practices for Prompting
+## 1.2 Monitoring API Prompts - Real-Time Metrics
+
+### Resource Utilization (CPU, Memory, Instances)
+
+**Goals:** Check whether services are under- or over-utilized and how they are scaling.
+
+Example prompts:
+
+- "Show CPU and memory utilization for `my-service` in `region-1` over the last 1 hour."
+- "Is `my-service` in `region-2` CPU-bound or memory-bound over the last 4 hours?"
+- "How many instances did `my-service` use in `region-1` in the last 2 hours, and what is its configured max instances?"
+- "For all Cloud Run services in `region-1`, show average CPU utilization over the last 1 hour."
+
+**Expected behavior:**
+- Agent uses `get_resource_utilization` or `get_all_utilization_metrics`
+- Returns CPU/memory percentages (current, avg, max, min)
+- Compares instance count to configured max instances
+
+---
+
+### Performance Triage – 'Service is slow'
+
+**Goals:** Quickly determine whether the problem is with the Cloud Run service itself or downstream dependencies.
+
+Example prompts:
+
+- "The `my-service` Cloud Run service in `region-1` is slow. Check if the issue is with the service or a downstream dependency."
+- "Investigate performance issues for `my-service` in `region-2` over the last hour."
+- "Is `my-service` in `region-1` hitting resource limits or scaling caps?"
+- "For `my-service` in `region-1`, correlate CPU, memory, request rate, and latency over the last 2 hours and tell me where the bottleneck is."
+
+Expected behavior:
+
+- The agent uses fast Monitoring API metrics (`get_all_utilization_metrics`, `get_request_rate_and_latency_summary`) to inspect:
+  - CPU and memory utilization
+  - Instance count vs max instances
+  - Request volume and p95 latency
+- If the service appears healthy with low utilization and stable instances, the agent suggests investigating downstream services, databases, or APIs.
+
+---
+
+### Request Counts & Latency (Fast, Monitoring API)
+
+**Goals:** Get total requests, request rate, and p95 latency over a time window, without expensive log scans.
+
+Example prompts:
+
+- "Total number of requests for `my-service` in `region-1` for the last 3 hours."
+- "What is the average request rate and p95 latency for `my-service` in `region-2` over the last 6 hours?"
+- "Compare request rate and p95 latency for `my-service` between `region-1` and `region-2` for the last 2 hours."
+- "Show total requests and p95 latency for all Cloud Run services in `region-1` for the last 1 hour."
+
+Expected behavior:
+
+- The agent uses Monitoring API tools, such as `get_request_rate_and_latency_summary`, to compute:
+  - `total_requests`
+  - `avg_requests_per_minute`
+  - `max_requests_per_minute`
+  - p95 latency statistics (current, average, min, max).
+- These responses are optimized for windows up to at least 6 hours and do not use Cloud Logging.
+
+---
+
+### Multi-Service & Multi-Region Views
+
+**Goals:** Understand behavior across multiple services and regions.
+
+Example prompts:
+
+- "Summarize CPU utilization and request volume for all Cloud Run services in `region-1` for the last 1 hour."
+- "Which Cloud Run services are receiving the most traffic in `region-2` over the last 6 hours?"
+- "For all services in `region-1` and `region-2`, show which ones have the highest p95 latency in the last 2 hours."
+- "Identify any services in `region-1` that are consistently near their max instances over the last 3 hours."
+
+Expected behavior:
+
+- The agent uses multi-service/multi-region Monitoring API queries (`query_all_services_metrics_summary`, `get_all_utilization_metrics` in loops, etc.) and returns aggregated views, highlighting outliers and potential problem services.
+
+---
+
+## Section 1 Summary
+
+**REST API Prompts:**
+- Service discovery and listing
+- Configuration retrieval and comparison
+- Multi-region queries
+
+**Monitoring API Prompts:**
+- Real-time metrics (CPU, memory, instances)
+- Request counts and latency (p95)
+- Performance triage workflows
+
+**Key Characteristics:**
+- Fast response times (seconds)
+- API-based (not log scanning)
+- Ideal for operational queries (1-6 hour windows)
+
+---
+
+# SECTION 2: ANALYTICS & SUPPORTING CONTENT
+
+## Overview
+
+Section 2 covers log-based forensic analysis, workflows, best practices, and troubleshooting guidelines.
+
+---
+
+## 2.1 Forensic Analysis (Cloud Logging)
+
+### Exact Request Counts from Logs (Slow, Forensic)
+
+**Goals:** Obtain precise, log-level request counts, usually for audits or incident analysis.
+
+Example prompts:
+
+- "From Cloud Logging, give me the exact number of requests for `my-service` in `region-1` for the last 1 hour, broken down by status code."
+- "Using logs, get exact request counts and error counts for `my-service` in `region-2` over the last 2 hours."
+- "Perform a forensic analysis of request volume and failures for `my-service` in `region-1` for the last 30 minutes using Cloud Logging only."
+- "Use logs to compute exact 2xx, 4xx, and 5xx counts for `my-service` in `region-1` for the last 90 minutes."
+
+Expected behavior:
+
+- The agent warns that log-based analysis may be slow and may be limited by log entry caps (e.g., 100,000 entries per chunk).
+- It then uses log-based tools (`get_exact_request_counts`, `get_exact_request_counts_from_logs`) to return:
+  - Total requests
+  - Status-code breakdowns (2xx, 4xx, 5xx)
+  - Notes if results are partial due to caps.
+
+**Important:**
+- For windows >24 hours, chunking is automatic
+- Expect slower response times (minutes)
+- Reserve for cases requiring exact accuracy
+
+---
+
+## 2.2 Best Practices for Prompting
 
 ### Be Explicit About:
 
 - **Service name(s)** - Use exact names
 - **Region(s)** - Specify regions (e.g., us-central1, us-east1)
 - **Time window** - "last 3 hours", "last 24 hours"
-- **Intent** - Monitoring vs configuration query
+- **Intent** - REST API vs Monitoring API vs Log-based query
 
-### Section 1 (Monitoring) Keywords:
+### Section 1 Keywords:
 
-- "CPU", "memory", "utilization", "slow", "latency"
-- "requests", "traffic", "p95", "performance"
-- "exact counts", "from logs", "forensic"
-
-### Section 2 (Configuration) Keywords:
-
+**REST API:**
 - "list", "show config", "configuration", "settings"
 - "scaling", "instances", "image", "env vars"
 - "discover", "what services"
 
----
+**Monitoring API:**
+- "CPU", "memory", "utilization", "slow", "latency"
+- "requests", "traffic", "p95", "performance"
 
-## Monitoring vs Configuration Queries
+### Section 2 Keywords:
 
-### When Agent Uses Monitoring Tools:
-
-"Service X is slow" → `get_all_utilization_metrics`  
-"Request count" → `get_request_rate_and_latency_summary`  
-"Exact counts from logs" → `get_exact_request_counts`
-
-### When Agent Uses Configuration Tools:
-
-"List services" → `list_services`  
-"Show config" → `get_service_details`  
-"Scaling settings" → `get_service_details` (returns min/max instances)
+- "exact counts", "from logs", "forensic"
+- "status code breakdown", "2xx/4xx/5xx"
 
 ---
 
-## Performance Guidelines
+## 2.3 API vs Log-Based Queries
 
-### Fast Queries (Seconds)
-- List services
-- Get service configuration (cached)
-- Monitoring metrics (1-6 hour windows)
+### When Agent Uses API Tools (Section 1):
 
-### Slower Queries (Minutes)
+"List services" → `list_services` (Cloud Asset API)  
+"Show config" → `get_service_details` (Cloud Run API)  
+"Service X is slow" → `get_all_utilization_metrics` (Monitoring API)  
+"Request count" → `get_request_rate_and_latency_summary` (Monitoring API)
+
+### When Agent Uses Log-Based Tools (Section 2):
+
+"Exact counts from logs" → `get_exact_request_counts` (Cloud Logging)
+
+---
+
+## 2.4 Performance Guidelines
+
+### Fast Queries (Seconds) - Section 1
+- List services (Cloud Asset API)
+- Get service configuration (Cloud Run API, cached)
+- Monitoring API metrics (1-6 hour windows)
+
+### Slower Queries (Minutes) - Section 2
 - Exact log counts (especially >2 hours)
 - Multi-service utilization (10+ services)
 - Large time windows (24+ hours with logs)
 
 ---
 
-## Common Workflows
+## 2.5 Common Workflows
 
 ### Workflow 1: Performance Triage
 
@@ -301,9 +327,9 @@ Step 3: "Which services have max_instances < 10?"
 
 ---
 
-## Limitations and Usage Guidelines
+## 2.6 Limitations and Usage Guidelines
 
-### Log-Based Queries (Section 1.2)
+### Log-Based Queries (Section 2.1)
 
 **When to use:**
 - You need **exact, log-level counts** for audits or incident postmortems
@@ -322,66 +348,52 @@ Step 3: "Which services have max_instances < 10?"
 
 **Guardrails:**
 - Use **shorter time windows** (15–60 minutes) when possible
-- If query hits log limits or is slow, narrow the window or switch to metrics
+- If query hits log limits or is slow, narrow the window or switch to Monitoring API
 - Treat log-based tools as **opt-in** and **slow**
 
 ---
 
-### Metrics-Based Queries (Section 1.1)
+### API-Based Queries (Section 1)
 
 **When to use:**
-- You need **fast answers** about request counts, latency, utilization, instances
-- You are troubleshooting current or recent performance issues (up to 6 hours)
+- You need **fast answers** about services, configuration, or metrics
+- You are troubleshooting current or recent issues (up to 6 hours)
 - You want to compare services or regions quickly
 
-**Why use metrics instead of logs:**
+**Why use APIs instead of logs:**
 - **Performance:** Significantly faster than scanning raw logs
 - **Scalability:** Scales well for multi-hour windows and high-traffic services
-- **Clarity:** Directly exposes utilization, rates, and percentiles
+- **Clarity:** Directly exposes configuration, utilization, rates, and percentiles
 
 **Data characteristics:**
-- Metrics are **aggregated** and may be subject to sampling
-- Values are approximate rather than exact per-request counts
-- For operational decision-making, this approximation is usually sufficient
+- REST API: Authoritative configuration data
+- Monitoring API: Aggregated metrics (may be approximate)
+- For operational decision-making, this is usually sufficient
 
 **Guardrails:**
-- For "How many requests?" or "What is p95 latency?", default to metrics
-- Use metrics for:
+- Default to API tools for:
+  - "What services exist?"
+  - "Show me config/settings"
   - "Is the service healthy?"
   - "Is it CPU- or memory-bound?"
-  - "Is it hitting max instances?"
-  - "What are traffic patterns over last few hours?"
+  - "What are traffic patterns?"
 
 ---
 
-### Configuration Queries (Section 2)
+## 2.7 Summary Table
 
-**When to use:**
-- You need to know **what services exist**
-- You need to retrieve **service configuration** (scaling, image, env vars)
-- You want to compare configuration across regions/services
-
-**Performance:**
-- Fast (seconds)
-- Cached (5min TTL for repeated queries)
-- Read-only (no modifications)
-
----
-
-## Summary Table
-
-| Query Type | Section | Tool Example | Speed | Use Case |
-|------------|---------|--------------|-------|----------|
-| CPU/Memory utilization | 1.1 | `get_resource_utilization` | Fast | Performance triage |
-| Request rate + latency | 1.1 | `get_request_rate_and_latency_summary` | Fast | Traffic analysis |
-| Exact log counts | 1.2 | `get_exact_request_counts` | Slow | Forensic audit |
-| List services | 2.1 | `list_services` | Fast | Discovery |
-| Service config | 2.2 | `get_service_details` | Fast | Configuration audit |
-| Multi-region config | 2.2 | `get_service_all_regions` | Fast | Cross-region comparison |
+| Query Type | Section | Tool Example | Data Source | Speed | Use Case |
+|------------|---------|--------------|-------------|-------|----------|
+| List services | 1.1 | `list_services` | Cloud Asset API | Fast | Discovery |
+| Service config | 1.1 | `get_service_details` | Cloud Run API | Fast | Configuration audit |
+| Multi-region config | 1.1 | `get_service_all_regions` | Cloud Run API | Fast | Cross-region comparison |
+| CPU/Memory utilization | 1.2 | `get_resource_utilization` | Monitoring API | Fast | Performance triage |
+| Request rate + latency | 1.2 | `get_request_rate_and_latency_summary` | Monitoring API | Fast | Traffic analysis |
+| Exact log counts | 2.1 | `get_exact_request_counts` | Cloud Logging | Slow | Forensic audit |
 
 ---
 
-## Ask for Explanations
+## 2.8 Ask for Explanations
 
 Instead of only "how many?", consider:
 
